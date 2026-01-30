@@ -118,7 +118,7 @@ type App struct {
 	LLM                llms.Model
 	VisionLLM          llms.Model
 	ocrProvider        ocr.Provider      // OCR provider interface
-	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
+	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf", or "receipt_scanner"
 	docProcessor       DocumentProcessor // Optional: Can be used for mocking
 	localHOCRPath      string            // Path for saving hOCR files locally
 	localPDFPath       string            // Path for saving PDF files locally
@@ -510,7 +510,7 @@ func (app *App) isOcrEnabled() bool {
 func validateOCRProviderModeCompatibility(provider, mode string) error {
 	// Define which providers support which modes
 	supportedModes := map[string][]string{
-		"llm":          {"image"},                     // LLM-based OCR only supports image mode
+		"llm":          {"image", "receipt_scanner"},  // LLM-based OCR only supports image mode
 		"azure":        {"image"},                     // Azure Document Intelligence only supports image mode
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
@@ -642,7 +642,7 @@ func validateOrDefaultEnvVars() {
 		log.Infof("OCR_PROCESS_MODE not set, defaulting to %s", ocrProcessMode)
 	} else if (ocrProcessMode == "pdf" || ocrProcessMode == "whole_pdf") && os.Getenv("PDF_SKIP_EXISTING_OCR") == "true" {
 		log.Infof("PDF OCR detection enabled, will skip OCR for PDFs with existing text layers")
-	} else if ocrProcessMode != "image" && ocrProcessMode != "pdf" && ocrProcessMode != "whole_pdf" {
+	} else if ocrProcessMode != "image" && ocrProcessMode != "pdf" && ocrProcessMode != "whole_pdf" && ocrProcessMode != "receipt_scanner" {
 		log.Warnf("Invalid OCR_PROCESS_MODE value: %s, defaulting to image", ocrProcessMode)
 		ocrProcessMode = "image"
 	}

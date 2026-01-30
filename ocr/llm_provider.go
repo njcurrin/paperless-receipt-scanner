@@ -80,7 +80,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		"model":    p.model,
 		"page":     pageNumber,
 	})
-	logger.Debug("Starting LLM OCR processing")
+	logger.Debug("Starting LLM OCR processing, booc")
 
 	// Log the image dimensions
 	img, _, err := image.Decode(bytes.NewReader(imageContent))
@@ -95,6 +95,8 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	}).Debug("Image dimensions")
 
 	logger.Debugf("Prompt: %s", p.prompt)
+	logger.Info("General There")
+	logger.Info("Prompt: ", p.prompt)
 
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart

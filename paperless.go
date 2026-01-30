@@ -111,10 +111,10 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	log.WithFields(logrus.Fields{
-		"method": method,
-		"url":    url,
-	}).Debug("Making HTTP request")
+	// log.WithFields(logrus.Fields{
+	// 	"method": method,
+	// 	"url":    url,
+	// }).Debug("Making HTTP request")
 
 	resp, err := client.HTTPClient.Do(req)
 	if err != nil {

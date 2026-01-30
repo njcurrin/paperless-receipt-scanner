@@ -57,8 +57,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	processMode := options.ProcessMode
 	if processMode == "" {
 		processMode = app.ocrProcessMode
-	} else if processMode != "image" && processMode != "pdf" && processMode != "whole_pdf" {
-		return nil, fmt.Errorf("invalid ProcessMode: %s, must be one of: image, pdf, whole_pdf", processMode)
+	} else if processMode != "image" && processMode != "pdf" && processMode != "whole_pdf" && processMode != "receipt_scanner" {
+		return nil, fmt.Errorf("invalid ProcessMode: %s, must be one of: image, pdf, whole_pdf, receipt_scanner", processMode)
 	}
 
 	// Skip OCR if PDF already has OCR
@@ -231,6 +231,96 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				Debug("OCR completed for page")
 
 			ocrTexts = append(ocrTexts, result.Text)
+		}
+	} else if processMode == "receipt_scanner" {
+		//Lets see if this still works
+		imagePaths, imgPageCount, err := app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
+		defer func() {
+			for _, imagePath := range imagePaths {
+				if err := os.Remove(imagePath); err != nil {
+					docLogger.WithError(err).WithField("image_path", imagePath).Warn("Failed to remove temporary image file")
+				}
+			}
+		}()
+		if err != nil {
+			return nil, fmt.Errorf("error downloading document images for document %d: %w", documentID, err)
+		}
+
+		totalPdfPages = imgPageCount
+
+		if jobID != "" {
+			jobStore.Lock()
+			if job, exists := jobStore.jobs[jobID]; exists {
+				job.TotalPages = totalPdfPages
+			}
+			jobStore.Unlock()
+		}
+
+		// Log the page count information
+		docLogger.WithFields(logrus.Fields{
+			"processed_page_count": len(imagePaths),
+			"total_page_count":     totalPdfPages,
+			"limit_pages":          pageLimit,
+		}).Debug("Downloaded document images")
+
+		for i, imagePath := range imagePaths {
+			select {
+			case <-ctx.Done():
+				docLogger.Info("Job cancelled before processing page")
+				// Return partial results if cancelled
+				return &ProcessedDocument{
+					ID:   documentID,
+					Text: strings.Join(ocrTexts, "\n\n"),
+				}, ctx.Err()
+			default:
+			}
+
+			pageLogger := docLogger.WithField("page", i+1)
+			pageLogger.Debug("Processing page")
+
+			imageContent, err := os.ReadFile(imagePath)
+			if err != nil {
+				return nil, fmt.Errorf("error reading image file for document %d, page %d: %w", documentID, i+1, err)
+			}
+
+			// Store image data for potential PDF generation
+			imageDataList = append(imageDataList, imageContent)
+
+			// Pass the page number (1-based index) to ProcessImage
+			result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
+			if err != nil {
+				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
+			}
+			if result == nil {
+				pageLogger.Error("Got nil result from OCR provider")
+				return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
+			}
+
+			if jobID != "" {
+				jobStore.updatePagesDone(jobID, i+1)
+			}
+
+			pageLogger.WithField("has_hocr_page", result.HOCRPage != nil).
+				WithField("metadata", result.Metadata).
+				Debug("OCR completed for page")
+
+			ocrTexts = append(ocrTexts, result.Text)
+			ocrResults = append(ocrResults, result)
+
+
+
+			var genInfoJSON string
+			if result.GenerationInfo != nil {
+				if b, err := json.Marshal(result.GenerationInfo); err == nil {
+					genInfoJSON = string(b)
+				}
+			}
+
+			saveErr := SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
+			if saveErr != nil {
+				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
+				// Continue processing other pages even if saving fails for one
+			}
 		}
 	} else {
 		// Process pages as images

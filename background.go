@@ -86,7 +86,7 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 	}
 
 	if len(documents) == 0 {
-		log.Debugf("No documents with tag %s found", autoTag)
+		// log.Debugf("No documents with tag %s found", autoTag) // noisy when queue is empty; keep silent
 		return 0, nil // No documents to process
 	}
 
@@ -162,7 +162,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	}
 
 	if len(documents) == 0 {
-		log.Debugf("No documents with tag %s found", autoOcrTag)
+		// log.Debugf("No documents with tag %s found", autoOcrTag) // noisy when queue is empty; keep silent
 		return 0, nil
 	}
 

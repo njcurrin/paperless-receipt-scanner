@@ -102,7 +102,8 @@ func (store *JobStore) updateJobStatus(jobID, status, result string) {
 			job.Result = result
 		}
 		job.UpdatedAt = time.Now()
-		logger.Infof("Job status updated: %v", job)
+		//logger.Infof("Job status updated: %v", job)
+		logger.Infof("Job status updated")
 	}
 }
 
