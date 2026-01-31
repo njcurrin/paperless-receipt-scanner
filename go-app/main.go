@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"paperless-gpt/ocr"
+	"paperless-gpt/local_db"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -174,7 +175,7 @@ func main() {
 	}()
 
 	// Initialize Database
-	database := InitializeDB()
+	database := local_db.InitializeDB()
 
 	// Load Templates
 	if err := loadTemplates(); err != nil {
@@ -365,7 +366,13 @@ func main() {
 		api.DELETE("/documents/:id/ocr_pages/:pageIndex/reocr", app.cancelReOCRPageHandler)
 		api.GET("/jobs/ocr/:job_id", app.getJobStatusHandler)
 		api.GET("/jobs/ocr", app.getAllJobsHandler)
-		api.POST("/ocr/jobs/:job_id/stop", app.stopOCRJobHandler)
+		api.POST("jobs/ocr/:job_id/stop", app.stopOCRJobHandler)
+
+		// Receipts endpoints
+		api.POST("/documents/:id/receipt", app.submitReceiptJobHandler)
+		api.GET("/jobs/receipts/:receiptJob_id", app.getReceiptJobStatusHandler)
+		api.GET("/jobs/receipts", app.getAllReceiptJobsHandler)
+		api.POST("/jobs/receipts/:receiptJob_id/stop", app.stopReceiptJobHandler)
 
 		// Endpoint to see if user enabled OCR
 		api.GET("/experimental/ocr", func(c *gin.Context) {
@@ -447,6 +454,10 @@ func main() {
 	// Start OCR worker pool
 	numWorkers := 1 // Number of workers to start
 	startWorkerPool(app, numWorkers)
+
+	// Start Receipt Worker pool
+	numReceiptWorkers := 1
+	startReceiptWorkerPool(app, numReceiptWorkers)
 
 	if listenInterface == "" {
 		listenInterface = ":8080"

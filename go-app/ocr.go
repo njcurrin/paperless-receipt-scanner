@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"paperless-gpt/ocr"
+	"paperless-gpt/local_db"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/gardar/ocrchestra/pkg/pdfocr"
@@ -233,7 +234,19 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			ocrTexts = append(ocrTexts, result.Text)
 		}
 	} else if processMode == "receipt_scanner" {
-		//Lets see if this still works
+		//It works, now for my stuff
+		// TODONE: Get the Original Content of the receipt. This will be what was made using traditional OCR, and the vlm will be improving on it
+		// TODONE2: Pass that to the vlm in ProcessReceipt()
+		// TODONE4: Make sure it still functions with the normal setup
+		// TODO3: Make it loopable, so the vlm can improve on itself n times
+		originalDocument, err := app.Client.GetDocument(ctx, documentID)
+		if err != nil {
+			return nil, fmt.Errorf("error downloading document %d: %w", documentID, err)
+		}
+		docLogger.Debug("Original Document Title: ", originalDocument.Title)
+
+		originalContent := originalDocument.Content
+
 		imagePaths, imgPageCount, err := app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
 		defer func() {
 			for _, imagePath := range imagePaths {
@@ -287,7 +300,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			imageDataList = append(imageDataList, imageContent)
 
 			// Pass the page number (1-based index) to ProcessImage
-			result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
+			result, err := app.ocrProvider.ProcessReceipt(ctx, imageContent, originalContent, i+1)
 			if err != nil {
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 			}
@@ -307,8 +320,6 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			ocrTexts = append(ocrTexts, result.Text)
 			ocrResults = append(ocrResults, result)
 
-
-
 			var genInfoJSON string
 			if result.GenerationInfo != nil {
 				if b, err := json.Marshal(result.GenerationInfo); err == nil {
@@ -316,7 +327,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				}
 			}
 
-			saveErr := SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
+			saveErr := local_db.SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
 			if saveErr != nil {
 				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
 				// Continue processing other pages even if saving fails for one
@@ -404,7 +415,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				}
 			}
 
-			saveErr := SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
+			saveErr := local_db.SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
 			if saveErr != nil {
 				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
 				// Continue processing other pages even if saving fails for one

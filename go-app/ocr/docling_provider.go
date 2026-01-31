@@ -203,6 +203,161 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	return result, nil
 }
 
+// ProcessImage sends the image content to the Docling server for OCR
+func (p *DoclingProvider) ProcessReceipt(ctx context.Context, imageContent []byte, originalContent string, pageNumber int) (*OCRResult, error) {
+	logger := log.WithFields(logrus.Fields{
+		"provider": "docling",
+		"url":      p.baseURL,
+	})
+	logger.Debug("Starting Docling processing")
+
+
+	// Prepare multipart request body
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+
+	// Detect if the incoming content is a PDF. Docling can accept PDF bytes directly
+	// for both per-page PDF and whole PDF processing modes. PDF files start with "%PDF".
+	isPDF := len(imageContent) >= 4 && bytes.HasPrefix(imageContent, []byte("%PDF"))
+
+	// Add file part. Use a generic filename; keep using document.pdf to match tests and
+	// to indicate a PDF payload. For image content Docling also accepts common image
+	// file names; using .pdf is acceptable and keeps behavior consistent.
+	filename := "document.pdf"
+	part, err := writer.CreateFormFile("files", filename)
+	if err != nil {
+		logger.WithError(err).Error("Failed to create form file")
+		return nil, fmt.Errorf("failed to create form file: %w", err)
+	}
+	_, err = io.Copy(part, bytes.NewReader(imageContent))
+	if err != nil {
+		logger.WithError(err).Error("Failed to copy content to form")
+		return nil, fmt.Errorf("failed to copy content to form: %w", err)
+	}
+
+	// If the caller passed a pageNumber of 0, it indicates whole-PDF processing in the
+	// higher-level logic. We don't need to set a special field for Docling here, but
+	// keep the metadata in the request fields as before.
+	if isPDF {
+		logger.WithField("docling_payload", "pdf").Debug("Detected PDF payload; sending directly to Docling")
+	} else {
+		logger.WithField("docling_payload", "image").Debug("Detected image payload; sending directly to Docling")
+	}
+
+	// Add required form fields
+	// Note: Docling expects boolean fields as strings "true"/"false"
+	if err := writer.WriteField("to_formats", "md"); err != nil {
+		return nil, fmt.Errorf("set to_formats: %w", err)
+	}
+	if err := writer.WriteField("do_ocr", "true"); err != nil {
+		return nil, fmt.Errorf("set do_ocr: %w", err)
+	}
+	if err := writer.WriteField("pipeline", p.pipeline); err != nil {
+		return nil, fmt.Errorf("set pipeline: %w", err)
+	}
+	if p.pipeline == "standard" {
+		if err := writer.WriteField("ocr_engine", p.ocrEngine); err != nil {
+			return nil, fmt.Errorf("set ocr_engine: %w", err)
+		}
+	}
+	if err := writer.WriteField("image_export_mode", p.imageExportMode); err != nil {
+		return nil, fmt.Errorf("set image_export_mode: %w", err)
+	}
+	// Close multipart writer
+	err = writer.Close()
+	if err != nil {
+		logger.WithError(err).Error("Failed to close multipart writer")
+		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	// Create HTTP request
+	requestURL := p.baseURL + "/v1/convert/file"
+	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", requestURL, &requestBody)
+	if err != nil {
+		logger.WithError(err).Error("Failed to create HTTP request")
+		return nil, fmt.Errorf("error creating Docling request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "application/json") // Ensure we get JSON back
+
+	logger.Debug("Sending request to Docling server")
+	// Add detailed logging of request parameters
+	logger.WithFields(logrus.Fields{
+		"to_formats":        "md",
+		"do_ocr":            "true",
+		"pipeline":          p.pipeline,
+		"ocr_engine":        p.ocrEngine,
+		"image_export_mode": p.imageExportMode,
+	}).Debug("Docling request parameters")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		logger.WithError(err).Error("Failed to send request to Docling server")
+		return nil, fmt.Errorf("error sending request to Docling: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.WithError(err).Error("Failed to read Docling response body")
+		return nil, fmt.Errorf("error reading Docling response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"response":    string(respBodyBytes),
+		}).Error("Received non-OK status from Docling")
+		return nil, fmt.Errorf("docling API returned status %d: %s", resp.StatusCode, string(respBodyBytes))
+	}
+
+	// Parse JSON response
+	var doclingResp DoclingConvertResponse
+	if err := json.Unmarshal(respBodyBytes, &doclingResp); err != nil {
+		logger.WithError(err).WithField("response", string(respBodyBytes)).Error("Failed to parse Docling JSON response")
+		return nil, fmt.Errorf("error parsing Docling JSON response: %w", err)
+	}
+
+	// Check Docling status and errors
+	if doclingResp.Status != "success" {
+		logger.WithFields(logrus.Fields{
+			"status": doclingResp.Status,
+			"errors": doclingResp.Errors,
+		}).Error("Docling processing failed")
+		// Handle potential error structures if known, otherwise just report status
+		return nil, fmt.Errorf("docling processing failed with status '%s', errors: %v", doclingResp.Status, doclingResp.Errors)
+	}
+
+	// Extract text content
+	ocrText := doclingResp.Document.TextContent
+	if ocrText == "" {
+		// Fallback to Markdown content if text content is empty (less ideal but better than nothing)
+		ocrText = doclingResp.Document.MdContent
+		logger.Debug("Text content empty, falling back to Markdown content")
+	}
+
+	if ocrText == "" {
+		logger.WithFields(logrus.Fields{
+			"document":        doclingResp.Document,
+			"response_status": doclingResp.Status,
+		}).Warn("Received empty text and markdown content from Docling")
+		// Log more details about the response to help debug
+		logger.WithField("raw_response", string(respBodyBytes)).Debug("Raw Docling response")
+	}
+
+	result := &OCRResult{
+		Text: ocrText,
+		Metadata: map[string]string{
+			"provider":    "docling",
+			"has_content": fmt.Sprintf("%t", ocrText != ""),
+		},
+	}
+
+	logger.WithField("content_length", len(result.Text)).Info("Successfully processed image with Docling")
+	return result, nil
+}
+
 // DoclingConvertResponse mirrors the structure of the /v1alpha/convert/file JSON response
 type DoclingConvertResponse struct {
 	Document DoclingDocumentResponse `json:"document"`

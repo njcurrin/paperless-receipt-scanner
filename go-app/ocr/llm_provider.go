@@ -80,7 +80,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		"model":    p.model,
 		"page":     pageNumber,
 	})
-	logger.Debug("Starting LLM OCR processing, booc")
+	logger.Debug("Starting LLM OCR processing")
 
 	// Log the image dimensions
 	img, _, err := image.Decode(bytes.NewReader(imageContent))
@@ -95,7 +95,8 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	}).Debug("Image dimensions")
 
 	logger.Debugf("Prompt: %s", p.prompt)
-	logger.Info("General There")
+
+	// adding some debug logging so I can see what's happening
 	logger.Info("Prompt: ", p.prompt)
 
 	// Prepare content parts based on provider type
@@ -171,6 +172,107 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	}
 
 	logger.WithField("content_length", len(result.Text)).WithFields(completion.Choices[0].GenerationInfo).Info("Successfully processed image")
+	return result, nil
+}
+
+func (p *LLMProvider) ProcessReceipt(ctx context.Context, imageContent []byte, originalContent string, pageNumber int) (*OCRResult, error) {
+	logger := log.WithFields(logrus.Fields{
+		"provider": p.provider,
+		"model":    p.model,
+		"page":     pageNumber,
+	})
+
+	// Log the image dimensions
+	img, _, err := image.Decode(bytes.NewReader(imageContent))
+	if err != nil {
+		logger.WithError(err).Error("Failed to decode receipt image")
+		return nil, fmt.Errorf("error decoding image: %w", err)
+	}
+	bounds := img.Bounds()
+	logger.WithFields(logrus.Fields{
+		"width":  bounds.Dx(),
+		"height": bounds.Dy(),
+	}).Debug("Image dimensions")
+
+	logger.Debugf("Prompt: %s", p.prompt)
+	logger.Info("Scanning Receipt for Items", originalContent)
+	// adding some debug logging so I can see what's happening
+	logger.Info("General Kenobi")
+	logger.Info("Prompt: ", p.prompt)
+
+	// Prepare content parts based on provider type
+	var parts []llms.ContentPart
+	var imagePart llms.ContentPart
+	providerName := strings.ToLower(p.provider)
+
+	if providerName == "openai" || providerName == "mistral" {
+		logger.Info("Using OpenAI image format")
+		imagePart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
+	} else {
+		logger.Info("Using binary image format")
+		imagePart = llms.BinaryPart("image/jpeg", imageContent)
+	}
+
+	parts = []llms.ContentPart{
+		imagePart,
+		llms.TextPart("<prompt>" + p.prompt + "</prompt>" + "<ocr-text>" + originalContent + "</ocr-text>"),
+	}
+
+	var callOpts []llms.CallOption
+	if p.maxTokens > 0 {
+		callOpts = append(callOpts, llms.WithMaxTokens(p.maxTokens))
+	}
+	if p.temperature != nil {
+		callOpts = append(callOpts, llms.WithTemperature(*p.temperature))
+	}
+	if providerName == "ollama" && p.ollamaTopK != nil {
+		callOpts = append(callOpts, llms.WithTopK(*p.ollamaTopK))
+	}
+
+	// Convert the image to text
+	logger.Info("Sending request to vision model")
+	completion, err := p.llm.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: parts,
+			Role:  llms.ChatMessageTypeHuman,
+		},
+	}, callOpts...)
+	if err != nil {
+		logger.WithError(err).Error("Failed to get response from vision model")
+		return nil, fmt.Errorf("error getting response from LLM: %w", err)
+	}
+
+	text := stripReasoning(completion.Choices[0].Content)
+	limitHit := false
+	tokenCount := -1
+
+	if p.maxTokens > 0 {
+		genInfo := completion.Choices[0].GenerationInfo
+		if genInfo != nil && genInfo["TotalTokens"] != nil {
+			if v, ok := genInfo["TotalTokens"].(int); ok {
+				tokenCount = v
+			}
+		}
+		// Fallback: count tokens using langchaingo (might not be accurate for all models)
+		if tokenCount < 0 {
+			tokenCount = llms.CountTokens(p.model, text)
+		}
+		if tokenCount >= p.maxTokens {
+			limitHit = true
+		}
+	}
+
+	result := &OCRResult{
+		Text: text,
+		Metadata: map[string]string{
+			"provider": p.provider,
+			"model":    p.model,
+		},
+		OcrLimitHit:    limitHit,
+		GenerationInfo: completion.Choices[0].GenerationInfo,
+	}
+
+	logger.WithField("content_length", len(result.Text)).WithFields(completion.Choices[0].GenerationInfo).Info("Successfully processed receipt")
 	return result, nil
 }
 

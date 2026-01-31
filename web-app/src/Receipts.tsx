@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { FaSpinner } from 'react-icons/fa';
 import { Document, DocumentSuggestion } from './DocumentProcessor';
 import { Tooltip } from 'react-tooltip';
-import { ClientStatus, OCRJobStatus, getStatusViewOptions, mapJobStatus } from './ocrStatus';
+import { ReceiptClientStatus, ReceiptJobStatus, getReceiptStatusViewOptions, mapReceiptJobStatus } from './receiptStatus';
 
 type OCRPageResult = {
   text: string;
@@ -12,13 +12,15 @@ type OCRPageResult = {
 };
 type OCRCombinedResult = { combinedText: string; perPageResults: OCRPageResult[] };
 
-const ExperimentalOCR: React.FC = () => {
+const Receipt: React.FC = () => {
   const refreshInterval = 1000; // Refresh interval in milliseconds
   const [documentId, setDocumentId] = useState(0);
-  const [jobId, setJobId] = useState('');
+  const [totalTender, setTotalTender] = useState(0);
+  const [itemsSold, setItemsSold] = useState(0);
+  const [receiptJobId, setReceiptJobId] = useState('');
   const [ocrResult, setOcrResult] = useState('');
-  const [jobStatus, setJobStatus] = useState<OCRJobStatus>('idle');
-  const [clientStatus, setClientStatus] = useState<ClientStatus>('idle');
+  const [receiptJobStatus, setReceiptJobStatus] = useState<ReceiptJobStatus>('idle');
+  const [clientStatus, setClientStatus] = useState<ReceiptClientStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pagesDone, setPagesDone] = useState(0);
@@ -28,17 +30,17 @@ const ExperimentalOCR: React.FC = () => {
   const [perPageResults, setPerPageResults] = useState<OCRPageResult[]>([]);
   const lastFetchedPagesDoneRef = useRef(0);
 
-  const [reOcrLoading, setReOcrLoading] = useState<{ [pageIdx: number]: boolean }>({});
-  const [reOcrErrors, setReOcrErrors] = useState<{ [pageIdx: number]: string }>({});
-  const [reOcrAbortControllers, setReOcrAbortControllers] = useState<{ [pageIdx: number]: AbortController | null }>({});
+  const [reReceiptLoading, setReReceiptLoading] = useState<{ [pageIdx: number]: boolean }>({});
+  const [reReceiptErrors, setReReceiptErrors] = useState<{ [pageIdx: number]: string }>({});
+  const [reReceiptAbortControllers, setReReceiptAbortControllers] = useState<{ [pageIdx: number]: AbortController | null }>({});
 
-  const stopOCRJob = async () => {
-    if (!jobId) return;
+  const stopReceiptJob = async () => {
+    if (!receiptJobId) return;
     try {
-      await axios.post(`./api/jobs/ocr/${jobId}/stop`);
-      setJobStatus('cancelled');
+      await axios.post(`./api/jobs/receipts/${receiptJobId}/stop`);
+      setReceiptJobStatus('cancelled');
     } catch (err) {
-      setError('Failed to stop OCR job.');
+      setError('Failed to stop Receipt job.');
     }
   };
 
@@ -65,14 +67,14 @@ const ExperimentalOCR: React.FC = () => {
     }
   }, [documentId]);
 
-  const submitOCRJob = async () => {
+  const submitReceiptJob = async () => {
     setError(null);
     setMessage(null);
-    setJobId('');
+    setReceiptJobId('');
     setOcrResult('');
     setPagesDone(0);
     setPerPageResults([]);
-    setJobStatus('idle');
+    setReceiptJobStatus('idle');
     setClientStatus('fetching_details');
     lastFetchedPagesDoneRef.current = 0;
 
@@ -80,9 +82,9 @@ const ExperimentalOCR: React.FC = () => {
       await fetchDocumentDetails();
 
       setClientStatus('submitting');
-      const response = await axios.post(`./api/documents/${documentId}/ocr`);
-      setJobId(response.data.job_id);
-      setJobStatus('pending');
+      const response = await axios.post(`./api/documents/${documentId}/receipt`);
+      setReceiptJobId(response.data.receiptJob_id);
+      setReceiptJobStatus('pending');
       setClientStatus('idle');
     } catch (err) {
       console.error(err);
@@ -91,13 +93,13 @@ const ExperimentalOCR: React.FC = () => {
     }
   };
 
-  const checkJobStatus = async () => {
-    if (!jobId) return;
+  const checkReceiptJobStatus = async () => {
+    if (!receiptJobId) return;
 
     try {
-      const response = await axios.get(`./api/jobs/ocr/${jobId}`);
-      const newJobStatus = mapJobStatus(response.data.status);
-      setJobStatus(newJobStatus);
+      const response = await axios.get(`./api/jobs/receipts/${receiptJobId}`);
+      const newReceiptJobStatus = mapReceiptJobStatus(response.data.status);
+      setReceiptJobStatus(newReceiptJobStatus);
       const newPagesDone = response.data.pages_done;
       setPagesDone(newPagesDone);
       setTotalPages(response.data.total_pages ?? null);
@@ -107,7 +109,7 @@ const ExperimentalOCR: React.FC = () => {
         lastFetchedPagesDoneRef.current = newPagesDone;
       }
 
-      if (newJobStatus === 'completed') {
+      if (newReceiptJobStatus === 'completed') {
         let parsedResult: OCRCombinedResult | null = null;
         try {
           parsedResult = JSON.parse(response.data.result);
@@ -119,14 +121,14 @@ const ExperimentalOCR: React.FC = () => {
           setOcrResult(parsedResult.combinedText);
           setPerPageResults(parsedResult.perPageResults);
         }
-      } else if (newJobStatus === 'failed') {
+      } else if (newReceiptJobStatus === 'failed') {
         setError(response.data.error);
       } else {
-        setTimeout(() => checkJobStatus(), refreshInterval);
+        setTimeout(() => checkReceiptJobStatus(), refreshInterval);
       }
     } catch (err) {
       console.error(err);
-      setError('Failed to check job status.');
+      setError('Failed to check Receipt job status.');
     }
   };
 
@@ -154,18 +156,18 @@ const ExperimentalOCR: React.FC = () => {
     }
   };
 
-  const handleReOcrPage = async (pageIdx: number) => {
+  const handleReReceiptPage = async (pageIdx: number) => {
     if (!perPageResults[pageIdx]) {
-      setReOcrErrors((prev) => ({ ...prev, [pageIdx]: "Page data not available." }));
+      setReReceiptErrors((prev) => ({ ...prev, [pageIdx]: "Page data not available." }));
       return;
     }
-
-    setReOcrLoading((prev) => ({ ...prev, [pageIdx]: true }));
-    setReOcrErrors((prev) => ({ ...prev, [pageIdx]: "" }));
-
+    
+    setReReceiptLoading((prev) => ({ ...prev, [pageIdx]: true }));
+    setReReceiptErrors((prev) => ({ ...prev, [pageIdx]: "" }));
+    
     const controller = new AbortController();
-    setReOcrAbortControllers((prev) => ({ ...prev, [pageIdx]: controller }));
-
+    setReReceiptAbortControllers((prev) => ({ ...prev, [pageIdx]: controller }));
+    
     try {
       const response = await axios.post(
         `./api/documents/${documentId}/ocr_pages/${pageIdx}/reocr`,
@@ -184,34 +186,33 @@ const ExperimentalOCR: React.FC = () => {
             : res
         )
       );
-
+      
       if (pageIdx + 1 > lastFetchedPagesDoneRef.current) {
         lastFetchedPagesDoneRef.current = pageIdx + 1;
       }
     } catch (err: any) {
       if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
-        setReOcrErrors((prev) => ({
+        setReReceiptErrors((prev) => ({
           ...prev,
           [pageIdx]: "Re-OCR cancelled.",
         }));
       } else {
-        setReOcrErrors((prev) => ({
+        setReReceiptErrors((prev) => ({
           ...prev,
           [pageIdx]: "Failed to re-OCR page.",
         }));
       }
     } finally {
-      setReOcrLoading((prev) => ({ ...prev, [pageIdx]: false }));
-      setReOcrAbortControllers((prev) => ({ ...prev, [pageIdx]: null }));
+      setReReceiptLoading((prev) => ({ ...prev, [pageIdx]: false }));
+      setReReceiptAbortControllers((prev) => ({ ...prev, [pageIdx]: null }));
     }
+  
   };
-
-  const handleCancelReOcrPage = async (pageIdx: number) => {
-    const controller = reOcrAbortControllers[pageIdx];
+  const handleCancelReReceiptPage = async (pageIdx: number) => {
+    const controller = reReceiptAbortControllers[pageIdx];
     if (controller) {
       controller.abort();
     }
-
     try {
       await axios.delete(`./api/documents/${documentId}/ocr_pages/${pageIdx}/reocr`);
       console.log(`Cancellation request sent for page ${pageIdx}`);
@@ -221,14 +222,14 @@ const ExperimentalOCR: React.FC = () => {
   };
 
   useEffect(() => {
-    if (jobId) {
+    if (receiptJobId) {
       lastFetchedPagesDoneRef.current = 0;
-      checkJobStatus();
+      checkReceiptJobStatus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId]);
+  }, [receiptJobId]);
 
-  const statusViewOptions = getStatusViewOptions(jobStatus, clientStatus);
+  const statusViewOptions = getReceiptStatusViewOptions(receiptJobStatus, clientStatus);
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
@@ -250,8 +251,34 @@ const ExperimentalOCR: React.FC = () => {
             placeholder="Enter the document ID"
           />
         </div>
+        <div className="mb-4">
+          <label htmlFor="totalTender" className="block mb-2 font-semibold">
+            Total Tender:
+          </label>
+          <input
+            type="number"
+            id="totalTender"
+            value={totalTender}
+            onChange={(e) => setTotalTender(Number(e.target.value))}
+            className="border border-gray-300 dark:border-gray-700 rounded w-full p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter the Total Tendered"
+          />
+        </div>
+        <div className="mb-4">
+          <label htmlFor="itemsSold" className="block mb-2 font-semibold">
+            Items Sold:
+          </label>
+          <input
+            type="number"
+            id="itemsSold"
+            value={itemsSold}
+            onChange={(e) => setItemsSold(Number(e.target.value))}
+            className="border border-gray-300 dark:border-gray-700 rounded w-full p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter the Total Tendered"
+          />
+        </div>
         <button
-          onClick={submitOCRJob}
+          onClick={submitReceiptJob}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition duration-200"
           disabled={!documentId}
         >
@@ -261,7 +288,7 @@ const ExperimentalOCR: React.FC = () => {
               Submitting...
             </span>
           ) : (
-            'Submit OCR Job'
+            'Submit Receipt Job'
           )}
         </button>
         {(statusViewOptions.label || pagesDone > 0) && (
@@ -281,9 +308,9 @@ const ExperimentalOCR: React.FC = () => {
                   : `Pages processed: ${pagesDone}`}
               </div>
             )}
-            {jobId && statusViewOptions.canStop && (
+            {receiptJobId && statusViewOptions.canStop && (
               <button
-                onClick={stopOCRJob}
+                onClick={stopReceiptJob}
                 className="mt-4 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded transition duration-200"
               >
                 Stop Job
@@ -355,11 +382,11 @@ const ExperimentalOCR: React.FC = () => {
                 <div className="mt-2 flex flex-col sm:flex-row items-start sm:items-center gap-2">
                   <div className="flex flex-row items-center gap-2">
                     <button
-                      onClick={() => handleReOcrPage(idx)}
+                      onClick={() => handleReReceiptPage(idx)}
                       className="bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 rounded transition duration-200"
-                      disabled={reOcrLoading[idx]}
+                      disabled={reReceiptLoading[idx]}
                     >
-                      {reOcrLoading[idx] ? (
+                      {reReceiptLoading[idx] ? (
                         <span className="flex items-center">
                           <FaSpinner className="animate-spin mr-2" />
                           Re-OCRing...
@@ -368,9 +395,9 @@ const ExperimentalOCR: React.FC = () => {
                         'Re-OCR Page'
                       )}
                     </button>
-                    {reOcrLoading[idx] && (
+                    {reReceiptLoading[idx] && (
                       <button
-                        onClick={() => handleCancelReOcrPage(idx)}
+                        onClick={() => handleCancelReReceiptPage(idx)}
                         className="bg-gray-500 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded transition duration-200"
                         style={{ marginLeft: 8 }}
                       >
@@ -378,8 +405,8 @@ const ExperimentalOCR: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  {reOcrErrors[idx] && (
-                    <span className="text-red-600 text-sm ml-2">{reOcrErrors[idx]}</span>
+                  {reReceiptErrors[idx] && (
+                    <span className="text-red-600 text-sm ml-2">{reReceiptErrors[idx]}</span>
                   )}
                 </div>
               </div>
@@ -413,4 +440,4 @@ const ExperimentalOCR: React.FC = () => {
   );
 };
 
-export default ExperimentalOCR;
+export default Receipt;

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"paperless-gpt/local_db"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -144,7 +145,7 @@ func processJob(app *App, job *Job) {
 	}()
 
 	// Delete old OCR page results for this document before starting new OCR
-	if err := DeleteOcrPageResults(app.Database, job.DocumentID); err != nil {
+	if err := local_db.DeleteOcrPageResults(app.Database, job.DocumentID); err != nil {
 		logger.Errorf("Failed to delete old OCR page results for document %d: %v", job.DocumentID, err)
 		// Continue processing even if deletion fails
 	}

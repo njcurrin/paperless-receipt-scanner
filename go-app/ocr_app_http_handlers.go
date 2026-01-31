@@ -13,6 +13,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"paperless-gpt/local_db"
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/gin-gonic/gin"
@@ -244,6 +245,9 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
 }
 
+
+
+
 func (app *App) getJobStatusHandler(c *gin.Context) {
 	jobID := c.Param("job_id")
 
@@ -338,7 +342,7 @@ func (app *App) getOCRPagesHandler(c *gin.Context) {
 		return
 	}
 
-	dbResults, err := GetOcrPageResults(app.Database, parsedID)
+	dbResults, err := local_db.GetOcrPageResults(app.Database, parsedID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch OCR page results"})
 		return
@@ -435,7 +439,7 @@ func (app *App) reOCRPageHandler(c *gin.Context) {
 			genInfoJSON = string(b)
 		}
 	}
-	saveErr := SaveSingleOcrPageResult(app.Database, parsedID, pageIdx, result.Text, result.OcrLimitHit, genInfoJSON)
+	saveErr := local_db.SaveSingleOcrPageResult(app.Database, parsedID, pageIdx, result.Text, result.OcrLimitHit, genInfoJSON)
 	if saveErr != nil {
 		log.Errorf("Failed to save re-OCR result for doc %d page %d: %v", parsedID, pageIdx, saveErr)
 	}
@@ -496,7 +500,7 @@ func (app *App) getModificationHistoryHandler(c *gin.Context) {
 	}
 
 	// Get paginated modifications and total count
-	modifications, total, err := GetPaginatedModifications(app.Database, page, pageSize)
+	modifications, total, err := local_db.GetPaginatedModifications(app.Database, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve modification history"})
 		log.Errorf("Failed to retrieve modification history: %v", err)
@@ -523,7 +527,7 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 		return
 	}
 
-	modification, err := GetModification(app.Database, uint(modID))
+	modification, err := local_db.GetModification(app.Database, uint(modID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve modification"})
 		log.Errorf("Failed to retrieve modification: %v", err)
@@ -577,7 +581,7 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 	}
 
 	// Successful, so set modification as undone
-	err = SetModificationUndone(app.Database, modification)
+	err = local_db.SetModificationUndone(app.Database, modification)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark modification as undone"})
 		return

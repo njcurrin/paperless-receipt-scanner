@@ -6,6 +6,7 @@ import ExperimentalOCR from './ExperimentalOCR'; // New component
 import History from './History';
 import Settings from './components/Settings';
 import AdhocAnalysis from './AdhocAnalysis';
+import Receipts from './Receipts';
 
 const App: React.FC = () => {
   // Keep the base path (path prefix from reverse-proxy) and remove the app path,
@@ -25,6 +26,7 @@ const App: React.FC = () => {
                 <Route path="/experimental-ocr" element={<ExperimentalOCR />} />
                 <Route path="/history" element={<History />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/receipts" element={<Receipts />} />
               </Routes>
             </div>
             <footer className="border-t-2 border-gray-200 bg-blue-50 p-5 text-center text-base text-gray-700 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:shadow-[0_-2px_10px_rgba(0,0,0,0.2)]">

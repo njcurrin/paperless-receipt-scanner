@@ -153,6 +153,77 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 	}, nil
 }
 
+// ProcessImage implements the OCR Provider interface
+func (p *MistralOCRProvider) ProcessReceipt(ctx context.Context, data []byte, originalContent string, pageNumber int) (*OCRResult, error) {
+	logger := log.WithFields(logrus.Fields{
+		"page_number": pageNumber,
+		"data_size":   len(data),
+		"provider":    "mistral_ocr",
+		"model":       p.model,
+	})
+	
+	logger.Info("Processing image with Mistral OCR provider")
+
+	// Detect the actual MIME type of the data
+	mtype := mimetype.Detect(data)
+	logger.WithField("detected_mime_type", mtype.String()).Debug("Detected content type")
+
+	var req MistralOCRRequest
+	req.Model = p.model
+
+	// Handle different content types appropriately
+	if mtype.String() == "application/pdf" {
+		logger.Debug("Processing PDF content via file upload method")
+		// For PDF content, we need to upload the file first and use document_url
+		fileID, err := p.uploadFile(data)
+		if err != nil {
+			logger.WithError(err).Error("Failed to upload PDF file")
+			return nil, fmt.Errorf("failed to upload PDF file: %w", err)
+		}
+
+		// Get signed URL for the uploaded file
+		signedURL, err := p.getSignedURL(fileID)
+		if err != nil {
+			logger.WithError(err).Error("Failed to get signed URL")
+			return nil, fmt.Errorf("failed to get signed URL: %w", err)
+		}
+
+		req.Document.Type = "document_url"
+		req.Document.DocumentURL = signedURL
+		logger.WithField("document_url", signedURL).Debug("Using document URL method")
+	} else {
+		logger.Debug("Processing image content via base64 method")
+		// For image content, use base64 encoding
+		base64Data := base64.StdEncoding.EncodeToString(data)
+		
+		// Use the detected MIME type for the data URL
+		dataURL := fmt.Sprintf("data:%s;base64,%s", mtype.String(), base64Data)
+		
+		req.Document.Type = "image_url"
+		req.Document.ImageURL = dataURL
+		logger.WithFields(logrus.Fields{
+			"mime_type":        mtype.String(),
+			"base64_length":    len(base64Data),
+			"data_url_prefix":  dataURL[:min(50, len(dataURL))],
+		}).Debug("Using image URL method")
+	}
+
+	text, err := p.processDocument(req, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	return &OCRResult{
+		Text: text,
+		Metadata: map[string]string{
+			"provider":   "mistral_ocr",
+			"model":      p.model,
+			"mime_type":  mtype.String(),
+			"page":       fmt.Sprintf("%d", pageNumber),
+		},
+	}, nil
+}
+
 // uploadFile uploads a file to Mistral's files API
 func (p *MistralOCRProvider) uploadFile(data []byte) (string, error) {
 	logger := log.WithField("data_size", len(data))

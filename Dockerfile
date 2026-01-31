@@ -51,7 +51,7 @@ RUN apk add --no-cache \
     "sed=${SED_VERSION}"
 
 # Copy go.mod and go.sum files
-COPY go.mod go.sum ./
+COPY ./go-app/go.mod ./go-app/go.sum ./
 
 # Download dependencies
 RUN go mod download
@@ -63,8 +63,9 @@ RUN CGO_ENABLED=1 go build -tags musl -o /dev/null github.com/mattn/go-sqlite3
 COPY --from=frontend /app/dist /app/web-app/dist
 
 # Copy the Go source files
-COPY *.go .
-COPY ocr ./ocr
+COPY ./go-app/local_db ./local_db
+COPY ./go-app/ocr ./ocr
+COPY ./go-app/*.go .
 
 # Import ARGs from top level
 ARG VERSION

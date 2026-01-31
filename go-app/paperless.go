@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 
+	"paperless-gpt/local_db"
+
 	"github.com/disintegration/imaging"
 	"github.com/gen2brain/go-fitz"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
@@ -676,13 +678,13 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 							if tagResp.StatusCode == http.StatusOK {
 								log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
 								// Record this tag change with tag names for both PreviousValue and NewValue
-								mod := ModificationHistory{
+								mod := local_db.ModificationHistory{
 									DocumentID:    uint(documentID),
 									ModField:      "tags",
 									PreviousValue: fmt.Sprintf("%v", originalDoc.Tags),
 									NewValue:      fmt.Sprintf("%v", remainingTagNames),
 								}
-								if err := InsertModification(db, &mod); err != nil {
+								if err := local_db.InsertModification(db, &mod); err != nil {
 									log.Warnf("Error inserting tag modification record: %v", err)
 								}
 							} else {
@@ -703,13 +705,13 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				}
 			}
 			log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
-			mod := ModificationHistory{
+			mod := local_db.ModificationHistory{
 				DocumentID:    uint(documentID),
 				ModField:      field,
 				PreviousValue: fmt.Sprintf("%v", value),
 				NewValue:      fmt.Sprintf("%v", updatedFields[field]),
 			}
-			if err := InsertModification(db, &mod); err != nil {
+			if err := local_db.InsertModification(db, &mod); err != nil {
 				return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
 			}
 		}

@@ -137,6 +137,55 @@ func (p *AzureProvider) ProcessImage(ctx context.Context, imageContent []byte, p
 	return ocrResult, nil
 }
 
+func (p *AzureProvider) ProcessReceipt(ctx context.Context, imageContent []byte, originalContent string, pageNumber int) (*OCRResult, error) {
+	logger := log.WithFields(logrus.Fields{
+		"model_id": p.modelID,
+		"page":     pageNumber,
+	})
+	logger.Debug("Starting Azure Document Intelligence processing")
+
+	// Detect MIME type
+	mtype := mimetype.Detect(imageContent)
+	logger.WithField("mime_type", mtype.String()).Debug("Detected file type")
+
+	if !isImageMIMEType(mtype.String()) {
+		logger.WithField("mime_type", mtype.String()).Error("Unsupported file type")
+		return nil, fmt.Errorf("unsupported file type: %s", mtype.String())
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	// Submit document for analysis
+	operationLocation, err := p.submitDocument(ctx, imageContent)
+	if err != nil {
+		return nil, fmt.Errorf("error submitting document: %w", err)
+	}
+
+	// Poll for results
+	result, err := p.pollForResults(ctx, operationLocation)
+	if err != nil {
+		return nil, fmt.Errorf("error polling for results: %w", err)
+	}
+
+	// Convert to OCR result
+	ocrResult := &OCRResult{
+		Text: result.AnalyzeResult.Content,
+		Metadata: map[string]string{
+			"provider":    "azure_docai",
+			"page_count":  fmt.Sprintf("%d", len(result.AnalyzeResult.Pages)),
+			"api_version": result.AnalyzeResult.APIVersion,
+		},
+	}
+
+	logger.WithFields(logrus.Fields{
+		"content_length": len(ocrResult.Text),
+		"page_count":     len(result.AnalyzeResult.Pages),
+	}).Info("Successfully processed document")
+	return ocrResult, nil
+}
+
 func (p *AzureProvider) submitDocument(ctx context.Context, imageContent []byte) (string, error) {
 	outputFormatParam := ""
 	if p.outputContentFormat != "text" {

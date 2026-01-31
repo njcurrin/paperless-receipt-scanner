@@ -1,0 +1,187 @@
+package main
+
+import (
+	"context"
+	"os"
+	"sort"
+	"sync"
+	"time"
+
+	"paperless-gpt/local_db"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+)
+
+var (
+	receiptJobCancellersMu sync.Mutex
+	receiptJobCancellers   = make(map[string]context.CancelFunc)
+
+	reReceiptCancellersMu sync.Mutex
+	reReceiptCancellers   = make(map[string]context.CancelFunc)
+)
+
+// ReceiptJob represents an Receipt job
+type ReceiptJob struct {
+	ID         string
+	DocumentID int
+	Status     string // "pending", "in_progress", "completed", "failed", "cancelled"
+	Result     string // Receipt result (combined text) or error message
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	PagesDone  int        // Number of pages processed
+	TotalPages int        // Total number of pages in the document
+	Options    OCROptions // Receipt processing options
+}
+
+// ReceiptJobStore manages jobs and their statuses
+type ReceiptJobStore struct {
+	sync.RWMutex
+	receiptJobs map[string]*ReceiptJob
+}
+
+var (
+	receiptLogger = logrus.New()
+
+	receiptJobStore = &ReceiptJobStore{
+		receiptJobs: make(map[string]*ReceiptJob),
+	}
+	receiptJobQueue = make(chan *ReceiptJob, 100) // Buffered channel with capacity of 100 jobs
+)
+
+func init() {
+
+	// Initialize receiptLogger
+	receiptLogger.SetOutput(os.Stdout)
+	receiptLogger.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+	receiptLogger.SetLevel(logrus.InfoLevel)
+	receiptLogger.WithField("prefix", "RECEIPT_JOB")
+}
+
+func generateReceiptJobID() string {
+	receiptJobID := uuid.New().String()
+	receiptLogger.Info("Receipt Job ID: ", receiptJobID)
+	return receiptJobID
+}
+
+func (store *ReceiptJobStore) addReceiptJob(receiptJob *ReceiptJob) {
+	store.Lock()
+	defer store.Unlock()
+	receiptJob.PagesDone = 0 // Initialize PagesDone to 0
+	store.receiptJobs[receiptJob.ID] = receiptJob
+	receiptLogger.Infof("ReceiptJob added: %v", receiptJob)
+}
+
+func (store *ReceiptJobStore) getReceiptJob(receiptJobID string) (*ReceiptJob, bool) {
+	store.RLock()
+	defer store.RUnlock()
+	receiptJob, exists := store.receiptJobs[receiptJobID]
+	return receiptJob, exists
+}
+
+func (store *ReceiptJobStore) GetAllReceiptJobs() []*ReceiptJob {
+	store.RLock()
+	defer store.RUnlock()
+
+	receiptJobs := make([]*ReceiptJob, 0, len(store.receiptJobs))
+	for _, receiptJob := range store.receiptJobs {
+		receiptJobs = append(receiptJobs, receiptJob)
+	}
+
+	sort.Slice(receiptJobs, func(i, j int) bool {
+		return receiptJobs[i].CreatedAt.After(receiptJobs[j].CreatedAt)
+	})
+
+	return receiptJobs
+}
+
+func (store *ReceiptJobStore) updateReceiptJobStatus(receiptJobID, status, result string) {
+	store.Lock()
+	defer store.Unlock()
+	if receiptJob, exists := store.receiptJobs[receiptJobID]; exists {
+		receiptJob.Status = status
+		if result != "" {
+			receiptJob.Result = result
+		}
+		receiptJob.UpdatedAt = time.Now()
+		//receiptLogger.Infof("ReceiptJob status updated: %v", job)
+		receiptLogger.Infof("ReceiptJob status updated")
+	}
+}
+
+func (store *ReceiptJobStore) updatePagesDone(receiptJobID string, pagesDone int) {
+	store.Lock()
+	defer store.Unlock()
+	if receiptJob, exists := store.receiptJobs[receiptJobID]; exists {
+		receiptJob.PagesDone = pagesDone
+		receiptJob.UpdatedAt = time.Now()
+		receiptLogger.Infof("ReceiptJob pages done updated: %v", receiptJob)
+	}
+}
+
+func startReceiptWorkerPool(app *App, numWorkers int) {
+	for i := 0; i < numWorkers; i++ {
+		go func(workerID int) {
+			receiptLogger.Infof("ReceiptWorker %d started", workerID)
+			for receiptJob := range receiptJobQueue {
+				receiptLogger.Infof("ReceiptWorker %d processing receiptJob: %s", workerID, receiptJob.ID)
+				processReceiptJob(app, receiptJob)
+			}
+		}(i)
+	}
+}
+
+func processReceiptJob(app *App, receiptJob *ReceiptJob) {
+	receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "in_progress", "")
+
+	receiptJobCtx, cancel := context.WithCancel(context.Background())
+	receiptJobCancellersMu.Lock()
+	receiptJobCancellers[receiptJob.ID] = cancel
+	receiptJobCancellersMu.Unlock()
+	defer func() {
+		cancel()
+		receiptJobCancellersMu.Lock()
+		delete(receiptJobCancellers, receiptJob.ID)
+		receiptJobCancellersMu.Unlock()
+	}()
+
+	// Delete old Receipt page results for this document before starting new Receipt
+	if err := local_db.DeleteOcrPageResults(app.Database, receiptJob.DocumentID); err != nil {
+		receiptLogger.Errorf("Failed to delete old Receipt page results for document %d: %v", receiptJob.DocumentID, err)
+		// Continue processing even if deletion fails
+	}
+
+	// Create Receipt options from receiptJob options or app defaults
+	options := receiptJob.Options
+	if (options == OCROptions{}) {
+		// Use app defaults if receiptJob options are not set
+		options = OCROptions{
+			UploadPDF:       app.pdfUpload,
+			ReplaceOriginal: app.pdfReplace,
+			CopyMetadata:    app.pdfCopyMetadata,
+			LimitPages:      limitOcrPages,
+		}
+	}
+
+	processedDoc, err := app.ProcessDocumentOCR(receiptJobCtx, receiptJob.DocumentID, options, receiptJob.ID)
+	if err != nil {
+		if receiptJobCtx.Err() == context.Canceled {
+			receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "cancelled", "ReceiptJob cancelled by user")
+			receiptLogger.Infof("ReceiptJob cancelled: %s", receiptJob.ID)
+		} else {
+			receiptLogger.Errorf("Error processing document Receipt for receiptJob %s: %v", receiptJob.ID, err)
+			receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "failed", err.Error())
+		}
+		return
+	}
+	if processedDoc == nil {
+		receiptLogger.Infof("Receipt processing skipped for receiptJob %s (document %d)", receiptJob.ID, receiptJob.DocumentID)
+		receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "completed", "Skipped (already processed or other reason)")
+		return
+	}
+
+	receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "completed", processedDoc.Text)
+	receiptLogger.Infof("ReceiptJob completed: %s", receiptJob.ID)
+}

@@ -32,6 +32,7 @@ type OCRResult struct {
 // Provider defines the interface for OCR processing
 type Provider interface {
 	ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error)
+	ProcessReceipt(ctx context.Context, imageContent []byte, originalContent string, pageNumber int) (*OCRResult, error)
 }
 
 // Config holds the OCR provider configuration

@@ -1,4 +1,4 @@
-import { mdiCogOutline, mdiHistory, mdiHomeOutline, mdiTextBoxSearchOutline, mdiFileChartOutline } from "@mdi/js";
+import { mdiCogOutline, mdiHistory, mdiHomeOutline, mdiTextBoxSearchOutline, mdiFileChartOutline, mdiReceiptTextCheck } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import axios from "axios";
 import React, { useCallback, useEffect, useState } from "react";
@@ -53,6 +53,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
       path: "./experimental-ocr",
       icon: mdiTextBoxSearchOutline,
       title: "OCR",
+    });
+    menuItems.push({
+      name: "receipts",
+      path: "./receipts",
+      icon: mdiReceiptTextCheck,
+      title: "Receipts",
     });
   }
 
