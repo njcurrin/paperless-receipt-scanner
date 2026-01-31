@@ -33,3 +33,135 @@ type OCRPageResult struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
+
+type Prompt struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type Document struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type PDF struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type Tag struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type Correspondent struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type CustomeField struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type DocumentType struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type PromptType struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type tradOCRResult struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type vlmOCRResult struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type JobType struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type Job struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
