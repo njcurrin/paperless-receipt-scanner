@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"sort"
 	"sync"
@@ -23,15 +24,30 @@ var (
 
 // ReceiptJob represents an Receipt job
 type ReceiptJob struct {
-	ID         string
-	DocumentID int
-	Status     string // "pending", "in_progress", "completed", "failed", "cancelled"
-	Result     string // Receipt result (combined text) or error message
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	PagesDone  int        // Number of pages processed
-	TotalPages int        // Total number of pages in the document
-	Options    OCROptions // Receipt processing options
+	ID          string
+	DocumentID  int
+	TotalTender int64
+	ItemsSold   int
+	Status      string // "pending", "in_progress", "completed", "failed", "cancelled"
+	Result      string // Receipt result (combined text) or error message
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	PagesDone   int            // Number of pages processed
+	TotalPages  int            // Total number of pages in the document
+	Options     ReceiptOptions // Receipt processing options
+}
+
+type receiptResultItem struct {
+	Title string   `json:"title"`
+	Cost  int      `json:"cost"`
+	Names []string `json:"titles,omitempty"`
+}
+
+type receiptJobResultPayload struct {
+	PromptName    string              `json:"promptName"`
+	CombinedText  string              `json:"combinedText,omitempty"`
+	Cart          []receiptResultItem `json:"cart"`
+	CartItemNames []string            `json:"cartItemTitles"`
 }
 
 // ReceiptJobStore manages jobs and their statuses
@@ -134,6 +150,24 @@ func startReceiptWorkerPool(app *App, numWorkers int) {
 }
 
 func processReceiptJob(app *App, receiptJob *ReceiptJob) {
+	// Pre-Flight checklist for ProcessReceipt()
+	// 	Update Status
+	// 	Create Context
+	// 	Cancel Mechanism
+	// 	Database initialization
+	//		Delete previous OCR Job data
+	// 		populate read-Only TotalTender, ItemsSold
+	//		Populate Default ReceiptJobOptions if unset by user
+	// Flight
+	// 	pass pre-flight data to ProcessReceipt(ctx, receiptJob.DocumentID, TotalTender, ItemsSold, options, receiptJob.ID)
+	// 	log early cancellation by user
+	// 	log errors
+	// 	ProcessReceipt() finished
+
+	// Landing
+	// 	update job status to completed
+	// 	log completion
+	receiptLogger.SetOutput(os.Stdout)
 	receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "in_progress", "")
 
 	receiptJobCtx, cancel := context.WithCancel(context.Background())
@@ -155,9 +189,9 @@ func processReceiptJob(app *App, receiptJob *ReceiptJob) {
 
 	// Create Receipt options from receiptJob options or app defaults
 	options := receiptJob.Options
-	if (options == OCROptions{}) {
+	if (options == ReceiptOptions{}) {
 		// Use app defaults if receiptJob options are not set
-		options = OCROptions{
+		options = ReceiptOptions{
 			UploadPDF:       app.pdfUpload,
 			ReplaceOriginal: app.pdfReplace,
 			CopyMetadata:    app.pdfCopyMetadata,
@@ -165,7 +199,32 @@ func processReceiptJob(app *App, receiptJob *ReceiptJob) {
 		}
 	}
 
-	processedDoc, err := app.ProcessDocumentOCR(receiptJobCtx, receiptJob.DocumentID, options, receiptJob.ID)
+	//processedDoc, err := app.ProcessDocumentOCR(receiptJobCtx, receiptJob.DocumentID, options, receiptJob.ID)
+	// if err != nil {
+	// 	if receiptJobCtx.Err() == context.Canceled {
+	// 		receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "cancelled", "ReceiptJob cancelled by user")
+	// 		receiptLogger.Infof("ReceiptJob cancelled: %s", receiptJob.ID)
+	// 	} else {
+	// 		receiptLogger.Errorf("Error processing document Receipt for receiptJob %s: %v", receiptJob.ID, err)
+	// 		receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "failed", err.Error())
+	// 	}
+	// 	return
+	// }
+	// if processedDoc == nil {
+	// 	receiptLogger.Infof("Receipt processing skipped for receiptJob %s (document %d)", receiptJob.ID, receiptJob.DocumentID)
+	// 	receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "completed", "Skipped (already processed or other reason)")
+	// 	return
+	// }
+	receiptLogger.Info("Hello There!")
+
+	processedReceipt, err := app.processReceipt(
+		receiptJobCtx,
+		receiptJob.DocumentID,
+		receiptJob.TotalTender,
+		receiptJob.ItemsSold,
+		options,
+		receiptJob.ID,
+	)
 	if err != nil {
 		if receiptJobCtx.Err() == context.Canceled {
 			receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "cancelled", "ReceiptJob cancelled by user")
@@ -176,12 +235,43 @@ func processReceiptJob(app *App, receiptJob *ReceiptJob) {
 		}
 		return
 	}
-	if processedDoc == nil {
+	if processedReceipt == nil {
 		receiptLogger.Infof("Receipt processing skipped for receiptJob %s (document %d)", receiptJob.ID, receiptJob.DocumentID)
 		receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "completed", "Skipped (already processed or other reason)")
 		return
 	}
 
-	receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "completed", processedDoc.Text)
+	cartItems := make([]receiptResultItem, 0, len(processedReceipt.Cart))
+	cartItemTitles := make([]string, 0, len(processedReceipt.Cart))
+	for _, cartItem := range processedReceipt.Cart {
+		if cartItem == nil {
+			continue
+		}
+		titles := append([]string(nil), cartItem.Title)
+		if len(titles) == 0 && cartItem.Title != "" {
+			titles = []string{cartItem.Title}
+		}
+		cartItems = append(cartItems, receiptResultItem{
+			Title: cartItem.Title,
+			Cost:  cartItem.Cost,
+			Names: titles,
+		})
+		cartItemTitles = append(cartItemTitles, titles...)
+	}
+
+	resultPayload := receiptJobResultPayload{
+		PromptName:    "receipt_cart_prompt",
+		CombinedText:  processedReceipt.TradOCR,
+		Cart:          cartItems,
+		CartItemNames: cartItemTitles,
+	}
+	resultJSON, err := json.Marshal(resultPayload)
+	if err != nil {
+		receiptLogger.Errorf("Failed to marshal receipt result for receiptJob %s: %v", receiptJob.ID, err)
+		receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "failed", "Failed to serialize receipt results")
+		return
+	}
+
+	receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "completed", string(resultJSON))
 	receiptLogger.Infof("ReceiptJob completed: %s", receiptJob.ID)
 }

@@ -60,6 +60,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
       icon: mdiReceiptTextCheck,
       title: "Receipts",
     });
+    menuItems.push({
+      name: "connections",
+      path: "./connections",
+      icon: mdiReceiptTextCheck,
+      title: "Connections",
+    });
   }
 
   return (

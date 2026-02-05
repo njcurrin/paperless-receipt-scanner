@@ -1,4 +1,4 @@
-package ocr
+package vlm
 
 import (
 	"bytes"
@@ -55,7 +55,6 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 		"url":      p.baseURL,
 	})
 	logger.Debug("Starting Docling processing")
-
 
 	// Prepare multipart request body
 	var requestBody bytes.Buffer
@@ -210,7 +209,6 @@ func (p *DoclingProvider) ProcessReceipt(ctx context.Context, imageContent []byt
 		"url":      p.baseURL,
 	})
 	logger.Debug("Starting Docling processing")
-
 
 	// Prepare multipart request body
 	var requestBody bytes.Buffer

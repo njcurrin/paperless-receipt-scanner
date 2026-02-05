@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"paperless-gpt/ocr"
 	"paperless-gpt/local_db"
+	"paperless-gpt/vlm"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/gardar/ocrchestra/pkg/pdfocr"
@@ -115,7 +115,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	var hocrCapable HOCRCapable
 	var hasHOCR bool
 
-	hocrCapable, hasHOCR = app.ocrProvider.(HOCRCapable)
+	hocrCapable, hasHOCR = app.vlmProvider.(HOCRCapable)
 
 	// Reset hOCR if the provider supports it
 	if hasHOCR {
@@ -135,7 +135,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	var originalPDFData []byte
 	var totalPdfPages int
 	var imagePaths []string
-	var ocrResults []*ocr.OCRResult
+	var ocrResults []*vlm.OCRResult
 
 	// Default process mode to app's ocrProcessMode if not set in options
 	processMode = options.ProcessMode
@@ -160,7 +160,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}).Debug("Processing whole PDF document")
 
 		// Process the whole PDF in one go
-		result, err := app.ocrProvider.ProcessImage(ctx, originalPDFData, 0) // Page 0 indicates entire document
+		result, err := app.vlmProvider.ProcessImage(ctx, originalPDFData, 0) // Page 0 indicates entire document
 		if err != nil {
 			return nil, fmt.Errorf("error performing OCR for document %d: %w", documentID, err)
 		}
@@ -218,7 +218,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			}
 
 			// Pass the page number (1-based index) to ProcessImage
-			result, err := app.ocrProvider.ProcessImage(ctx, pdfContent, i+1)
+			result, err := app.vlmProvider.ProcessImage(ctx, pdfContent, i+1)
 			if err != nil {
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 			}
@@ -244,8 +244,6 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			return nil, fmt.Errorf("error downloading document %d: %w", documentID, err)
 		}
 		docLogger.Debug("Original Document Title: ", originalDocument.Title)
-
-		originalContent := originalDocument.Content
 
 		imagePaths, imgPageCount, err := app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
 		defer func() {
@@ -300,7 +298,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			imageDataList = append(imageDataList, imageContent)
 
 			// Pass the page number (1-based index) to ProcessImage
-			result, err := app.ocrProvider.ProcessReceipt(ctx, imageContent, originalContent, i+1)
+			result, err := app.vlmProvider.ProcessImage(ctx, imageContent, i+1)
 			if err != nil {
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 			}
@@ -388,7 +386,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			imageDataList = append(imageDataList, imageContent)
 
 			// Pass the page number (1-based index) to ProcessImage
-			result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
+			result, err := app.vlmProvider.ProcessImage(ctx, imageContent, i+1)
 			if err != nil {
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 			}

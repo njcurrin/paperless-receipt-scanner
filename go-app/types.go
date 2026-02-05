@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 
+	"paperless-gpt/local_db"
+
 	"gorm.io/gorm"
 )
 
@@ -113,20 +115,20 @@ type Settings struct {
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
 type DocumentSuggestion struct {
-	ID                      int                     `json:"id"`
-	OriginalDocument        Document                `json:"original_document"`
-	SuggestedTitle          string                  `json:"suggested_title,omitempty"`
-	SuggestedTags           []string                `json:"suggested_tags,omitempty"`
-	SuggestedContent        string                  `json:"suggested_content,omitempty"`
-	SuggestedCorrespondent  string                  `json:"suggested_correspondent,omitempty"`
-	SuggestedCreatedDate    string                  `json:"suggested_created_date,omitempty"`
-	SuggestedDocumentType   string                  `json:"suggested_document_type,omitempty"`
-	SuggestedCustomFields   []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
-	KeepOriginalTags        bool                    `json:"keep_original_tags,omitempty"`
-	RemoveTags              []string                `json:"remove_tags,omitempty"`
-	AddTags                 []string                `json:"add_tags,omitempty"`
-	CustomFieldsWriteMode   string                  `json:"custom_fields_write_mode,omitempty"`
-	CustomFieldsEnable      bool                    `json:"custom_fields_enable"`
+	ID                     int                     `json:"id"`
+	OriginalDocument       Document                `json:"original_document"`
+	SuggestedTitle         string                  `json:"suggested_title,omitempty"`
+	SuggestedTags          []string                `json:"suggested_tags,omitempty"`
+	SuggestedContent       string                  `json:"suggested_content,omitempty"`
+	SuggestedCorrespondent string                  `json:"suggested_correspondent,omitempty"`
+	SuggestedCreatedDate   string                  `json:"suggested_created_date,omitempty"`
+	SuggestedDocumentType  string                  `json:"suggested_document_type,omitempty"`
+	SuggestedCustomFields  []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
+	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
+	RemoveTags             []string                `json:"remove_tags,omitempty"`
+	AddTags                []string                `json:"add_tags,omitempty"`
+	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
+	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
 }
 
 type Correspondent struct {
@@ -164,13 +166,21 @@ type ClientInterface interface {
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
-	GetCustomFields(ctx context.Context) ([]CustomField, error)
+	GetCustomFields(ctx context.Context) ([]local_db.CustomField, error)
 	CreateTag(ctx context.Context, tagName string) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
 	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
 	DeleteDocument(ctx context.Context, documentID int) error
+}
+
+type ReceiptOptions struct {
+	UploadPDF       bool   // Whether to upload the generated PDF
+	ReplaceOriginal bool   // Whether to delete the original document after uploading
+	CopyMetadata    bool   // Whether to copy metadata from the original document
+	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
+	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
 }
 
 // DocumentProcessor defines the interface for processing documents with OCR

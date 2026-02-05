@@ -40,13 +40,6 @@ type PaperlessClient struct {
 	CacheFolder string
 }
 
-// CustomField represents a custom field from the Paperless-ngx API
-type CustomField struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	DataType string `json:"data_type"`
-}
-
 // DocumentType represents a document type from the Paperless-ngx API
 type DocumentType struct {
 	ID   int    `json:"id"`
@@ -1201,8 +1194,8 @@ func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]Docum
 }
 
 // GetCustomFields retrieves all custom fields from the Paperless-NGX API
-func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
-	var customFields []CustomField
+func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]local_db.CustomField, error) {
+	var customFields []local_db.CustomField
 	path := "api/custom_fields/"
 
 	for path != "" {
@@ -1218,8 +1211,8 @@ func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFie
 		}
 
 		var response struct {
-			Results []CustomField `json:"results"`
-			Next    string        `json:"next"`
+			Results []local_db.CustomField `json:"results"`
+			Next    string                 `json:"next"`
 		}
 
 		err = json.NewDecoder(resp.Body).Decode(&response)

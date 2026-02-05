@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"paperless-gpt/ocr"
+	"paperless-gpt/vlm"
 	"testing"
 	"text/template"
 	"time"
-
-	"paperless-gpt/ocr"
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/stretchr/testify/assert"
@@ -23,13 +23,13 @@ func init() {
 	tokenLimit = 0
 }
 
-// mockOCRProvider implements ocr.Provider interface
+// mockOCRProvider implements vlm.Provider interface
 type mockOCRProvider struct {
 	text string
 }
 
 func (m *mockOCRProvider) ProcessImage(ctx context.Context, imageData []byte, pageNumber int) (*ocr.OCRResult, error) {
-	return &ocr.OCRResult{
+	return &vlm.OCRResult{
 		Text:     m.text,
 		Metadata: map[string]string{"language": "eng"},
 	}, nil
@@ -328,7 +328,7 @@ type TestApp struct {
 // ProcessDocumentOCR overrides the real implementation to avoid PDF processing during tests
 func (app *TestApp) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (*ProcessedDocument, error) {
 	// Create a simple processed document with mock data
-	mockText := app.ocrProvider.(*mockOCRProvider).text
+	mockText := app.vlmProvider.(*mockOCRProvider).text
 	return &ProcessedDocument{
 		ID:   documentID,
 		Text: mockText,
@@ -390,7 +390,7 @@ func (app *TestApp) processAutoOcrTagDocuments(ctx context.Context) (int, error)
 
 		// We skip the actual document download and OCR processing in the test
 		// Instead, we directly use our mock OCR provider
-		mockText := app.ocrProvider.(*mockOCRProvider).text
+		mockText := app.vlmProvider.(*mockOCRProvider).text
 		processedDoc := &ProcessedDocument{
 			ID:   document.ID,
 			Text: mockText,
@@ -521,7 +521,7 @@ func TestProcessAutoOcrTagDocuments(t *testing.T) {
 			app := &App{
 				Client:             client,
 				Database:           env.db,
-				ocrProvider:        &mockOCRProvider{text: tc.mockOCRText},
+				vlmProvider:        &mockOCRProvider{text: tc.mockOCRText},
 				docProcessor:       docProcessor,
 				ocrProcessMode:     "image",
 				pdfOCRTagging:      tc.pdfOCRTagging,

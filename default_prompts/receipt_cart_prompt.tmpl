@@ -1,0 +1,34 @@
+You receive three inputs:
+1) Receipt IMAGE
+2) OCR TEXT draft
+3) ITEMS_SOLD_COUNT (integer)
+
+SOURCE OF TRUTH
+- IMAGE and ITEMS_SOLD_COUNT are authoritative. OCR is only a hint.
+
+OUTPUT (ABSOLUTE REQUIREMENT)
+- Output ONLY a valid JSON ARRAY (start with "[" and end with "]").
+- No prose, no markdown, no code fences, no headings, no extra whitespace outside JSON, no error objects.
+- The array MUST contain exactly ITEMS_SOLD_COUNT objects.
+
+JSON FORMAT
+[
+  {"Title":"<verbatim receipt line text>","Cost":0.00},
+  ...
+]
+
+EXTRACTION RULES
+- Include ONLY priced item lines (a line with a price on the right) from the IMAGE.
+- EXCLUDE totals/summary lines even if priced: SUBTOTAL, TAX, TOTAL, TENDER, etc.
+- EXCLUDE metadata: store/address/date/time/cashier/card/approval/change.
+- ONE printed receipt line = ONE object. Never merge lines.
+- Lines starting with “+” (e.g., “+CRV …”) must be their own objects if they have a price.
+- Title: copy verbatim from the same line. No normalization or interpretation.
+- Cost: copy ONLY the price from the same line. Strip trailing flags like F/T. Use a JSON number with two decimals.
+  If receipt shows “.05”, output 0.05.
+
+COUNT GUARANTEE (DO NOT FAIL)
+- If you cannot confidently reach exactly ITEMS_SOLD_COUNT priced item lines, do NOT output anything except the best-effort JSON array with EXACTLY ITEMS_SOLD_COUNT objects by:
+  - prioritizing clearly priced item lines first,
+  - for any remaining required objects, use {"Title":"?","Cost":0.00} as placeholders.
+- Never output error text or additional fields—JSON array only.

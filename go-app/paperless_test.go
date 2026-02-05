@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"paperless-gpt/local_db"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,7 +84,7 @@ func InitializeTestDB() (*gorm.DB, error) {
 	}
 
 	// Migrate schema
-	err = db.AutoMigrate(&ModificationHistory{})
+	err = db.AutoMigrate(&local_db.ModificationHistory{})
 	if err != nil {
 		return nil, err
 	}

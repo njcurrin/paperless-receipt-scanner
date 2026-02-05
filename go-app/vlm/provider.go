@@ -1,8 +1,9 @@
-package ocr
+package vlm
 
 import (
 	"context"
 	"fmt"
+	"paperless-gpt/local_db"
 	"strings"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
@@ -32,7 +33,10 @@ type OCRResult struct {
 // Provider defines the interface for OCR processing
 type Provider interface {
 	ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error)
-	ProcessReceipt(ctx context.Context, imageContent []byte, originalContent string, pageNumber int) (*OCRResult, error)
+}
+
+type ReceiptItemProcessor interface {
+	ProcessReceiptCartItems(ctx context.Context, imageContent []byte, itemsSold int, originalContent string, receiptJobID string) ([]*local_db.ReceiptItem, error)
 }
 
 // Config holds the OCR provider configuration
@@ -58,9 +62,10 @@ type Config struct {
 	GoogleProcessorID string
 
 	// LLM settings (from existing config)
-	VisionLLMProvider string
-	VisionLLMModel    string
-	VisionLLMPrompt   string
+	VisionLLMProvider   string
+	VisionLLMModel      string
+	VisionLLMPrompt     string
+	VisionLLMCartPrompt string
 
 	// Azure Document Intelligence settings
 	AzureEndpoint            string

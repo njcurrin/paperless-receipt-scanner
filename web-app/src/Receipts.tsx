@@ -4,13 +4,72 @@ import { FaSpinner } from 'react-icons/fa';
 import { Document, DocumentSuggestion } from './DocumentProcessor';
 import { Tooltip } from 'react-tooltip';
 import { ReceiptClientStatus, ReceiptJobStatus, getReceiptStatusViewOptions, mapReceiptJobStatus } from './receiptStatus';
-
 type OCRPageResult = {
   text: string;
   ocrLimitHit: boolean;
   generationInfo?: Record<string, any>;
 };
-type OCRCombinedResult = { combinedText: string; perPageResults: OCRPageResult[] };
+type ReceiptCartItemResult = {
+  title?: string;
+  titles?: string[];
+  cost?: number;
+  names?: string[];
+  Title?: string;
+  Titles?: string[];
+  Cost?: number;
+  Names?: string[];
+};
+
+type ReceiptModelResult = {
+  promptName?: string;
+  combinedText?: string;
+  perPageResults?: OCRPageResult[];
+  cart?: ReceiptCartItemResult[];
+  cartItemTitles?: string[];
+  cartItemNames?: string[];
+  Cart?: ReceiptCartItemResult[];
+  CartItemTitles?: string[];
+  CartItemNames?: string[];
+};
+
+type ReceiptRow = {
+  title: string;
+  cost: number | null;
+}
+
+const getItemTitles = (item: ReceiptCartItemResult): string[] => {
+  const arr =
+    (Array.isArray(item.titles) && item.titles) ||
+    (Array.isArray(item.Titles) && item.Titles) ||
+    (Array.isArray(item.names) && item.names) ||
+    (Array.isArray(item.Names) && item.Names) ||
+    [];
+
+  const cleaned = arr.map((x) => x.trim()).filter(Boolean);
+  if (cleaned.length > 0) return cleaned;
+
+  const single = (item.title ?? item.Title ?? "").trim();
+  return single ? [single] : [];
+};
+
+const getItemCost = (item: ReceiptCartItemResult): number | null => {
+  const raw = item.cost ?? item.Cost;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  return null;
+};
+
+const buildReceiptRows = (result: ReceiptModelResult): ReceiptRow[] => {
+  const cartItems =
+    (Array.isArray(result.cart) && result.cart) ||
+    (Array.isArray(result.Cart) && result.Cart) ||
+    [];
+
+  return cartItems.flatMap((item) => {
+    const titles = getItemTitles(item);
+    const cost = getItemCost(item);
+    return titles.map((title) => ({ title, cost }));
+  });
+}
 
 const Receipt: React.FC = () => {
   const refreshInterval = 1000; // Refresh interval in milliseconds
@@ -28,6 +87,9 @@ const Receipt: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [documentDetails, setDocumentDetails] = useState<Document | null>(null);
   const [perPageResults, setPerPageResults] = useState<OCRPageResult[]>([]);
+  //const [receiptPromptName, setReceiptPromptName] = useState('');
+  //const [cartTitlesFieldValue, setCartTitlesFieldValue] = useState('');
+  const [cartRows, setCartRows] = useState<ReceiptRow[]>([]);
   const lastFetchedPagesDoneRef = useRef(0);
 
   const [reReceiptLoading, setReReceiptLoading] = useState<{ [pageIdx: number]: boolean }>({});
@@ -72,6 +134,8 @@ const Receipt: React.FC = () => {
     setMessage(null);
     setReceiptJobId('');
     setOcrResult('');
+    //setReceiptPromptName('');
+    //setCartTitlesFieldValue('');
     setPagesDone(0);
     setPerPageResults([]);
     setReceiptJobStatus('idle');
@@ -81,8 +145,15 @@ const Receipt: React.FC = () => {
     try {
       await fetchDocumentDetails();
 
+      // Convert currency to integer cents for the backend (which expects an int)
+      //const totalTenderCents = Math.round((Number(totalTender) || 0) * 100);
+      const totalCents = Math.round((totalTender || 0) * 100);
       setClientStatus('submitting');
-      const response = await axios.post(`./api/documents/${documentId}/receipt`);
+      const response = await axios.post(`./api/documents/${documentId}/receipt`, {
+        documentId,
+        totalTender: totalCents,
+        itemsSold,
+      });
       setReceiptJobId(response.data.receiptJob_id);
       setReceiptJobStatus('pending');
       setClientStatus('idle');
@@ -108,18 +179,24 @@ const Receipt: React.FC = () => {
         await fetchPerPageResults();
         lastFetchedPagesDoneRef.current = newPagesDone;
       }
-
+      
       if (newReceiptJobStatus === 'completed') {
-        let parsedResult: OCRCombinedResult | null = null;
+        let parsedResult: ReceiptModelResult | null = null;
         try {
           parsedResult = JSON.parse(response.data.result);
         } catch (e) {
           setOcrResult(response.data.result);
+          //setReceiptPromptName('');
+          //setCartTitlesFieldValue('');
           return;
         }
         if (parsedResult) {
-          setOcrResult(parsedResult.combinedText);
-          setPerPageResults(parsedResult.perPageResults);
+          setOcrResult(parsedResult.combinedText ?? '');
+          setPerPageResults(Array.isArray(parsedResult.perPageResults) ? parsedResult.perPageResults : []);
+          //setReceiptPromptName(parsedResult.promptName ?? '');
+
+          const rows = buildReceiptRows(parsedResult);
+          setCartRows(rows);
         }
       } else if (newReceiptJobStatus === 'failed') {
         setError(response.data.error);
@@ -230,6 +307,12 @@ const Receipt: React.FC = () => {
   }, [receiptJobId]);
 
   const statusViewOptions = getReceiptStatusViewOptions(receiptJobStatus, clientStatus);
+  const canSubmitReceiptJob =
+    Boolean(documentId) &&
+    Number.isFinite(totalTender) &&
+    Number.isFinite(itemsSold) &&
+    totalTender > 0 &&
+    itemsSold > 0;
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
@@ -280,7 +363,7 @@ const Receipt: React.FC = () => {
         <button
           onClick={submitReceiptJob}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition duration-200"
-          disabled={!documentId}
+          disabled={!canSubmitReceiptJob}
         >
           {clientStatus === 'submitting' ? (
             <span className="flex items-center justify-center">
@@ -412,6 +495,27 @@ const Receipt: React.FC = () => {
               </div>
             ))}
           </div>
+        )}
+        {cartRows.length > 0 && (
+          <table className="w-full mt-4 border-collapse">
+            <thead>
+              <tr>
+                <th className="text-left border-b p-2">Item</th>
+                <th className="text-center border-b p-2">Category</th>
+                <th className="text-right border-b p-2">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cartRows.map((row, i) => (
+                <tr key={`${row.title}-${i}`}>
+                  <td className="p-2 border-b">{row.title}</td>
+                  <td className="p-2 border-b text-right">
+                    {row.cost == null ? "—" : `$${(row.cost/100)}`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
         {ocrResult && (
           <div className="mt-6">

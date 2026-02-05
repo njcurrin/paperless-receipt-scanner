@@ -1,4 +1,4 @@
-package ocr
+package vlm
 
 import (
 	"strings"
@@ -161,8 +161,8 @@ func TestHOCRGeneration(t *testing.T) {
 
 			// Create the HOCR document
 			hocrDoc := &hocr.HOCR{
-				Title:  "Document OCR",
-				Pages:  []hocr.Page{page},
+				Title: "Document OCR",
+				Pages: []hocr.Page{page},
 			}
 
 			// Generate hOCR HTML from the document

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
 func (app *App) submitReceiptJobHandler(c *gin.Context) {
 	documentIDStr := c.Param("id")
 	documentID, err := strconv.Atoi(documentIDStr)
@@ -15,14 +17,39 @@ func (app *App) submitReceiptJobHandler(c *gin.Context) {
 		return
 	}
 
+	// Optional body allows client to pass documentId, totalTender, itemsSold
+	type receiptJobRequest struct {
+		DocumentID  int   `json:"documentId"`
+		TotalTender int64 `json:"totalTender"`
+		ItemsSold   int   `json:"itemsSold"`
+	}
+
+	var req receiptJobRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// If body includes a DocumentID, ensure it matches the path parameter (or use it when path is empty)
+	if req.DocumentID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no documentID"})
+		return
+	}
+	if req.DocumentID != documentID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "documentId in body does not match path"})
+		return
+	}
+
 	// Create a new receiptJob
 	receiptJobID := generateReceiptJobID() // Implement a function to generate unique receiptJob IDs
 	receiptJob := &ReceiptJob{
-		ID:         receiptJobID,
-		DocumentID: documentID,
-		Status:     "pending",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		ID:          receiptJobID,
+		DocumentID:  documentID,
+		TotalTender: req.TotalTender,
+		ItemsSold:   req.ItemsSold,
+		Status:      "pending",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	// Add receiptJob to store and queue
@@ -32,8 +59,6 @@ func (app *App) submitReceiptJobHandler(c *gin.Context) {
 	// Return the receiptJob ID to the client
 	c.JSON(http.StatusAccepted, gin.H{"receiptJob_id": receiptJobID})
 }
-
-
 
 func (app *App) getReceiptJobStatusHandler(c *gin.Context) {
 	receiptJobID := c.Param("receiptJob_id")
@@ -45,12 +70,12 @@ func (app *App) getReceiptJobStatusHandler(c *gin.Context) {
 	}
 
 	response := gin.H{
-		"receiptJob_id":      receiptJob.ID,
-		"status":      receiptJob.Status,
-		"created_at":  receiptJob.CreatedAt,
-		"updated_at":  receiptJob.UpdatedAt,
-		"pages_done":  receiptJob.PagesDone,
-		"total_pages": receiptJob.TotalPages,
+		"receiptJob_id": receiptJob.ID,
+		"status":        receiptJob.Status,
+		"created_at":    receiptJob.CreatedAt,
+		"updated_at":    receiptJob.UpdatedAt,
+		"pages_done":    receiptJob.PagesDone,
+		"total_pages":   receiptJob.TotalPages,
 	}
 
 	if receiptJob.Status == "completed" {
@@ -68,11 +93,11 @@ func (app *App) getAllReceiptJobsHandler(c *gin.Context) {
 	receiptJobList := make([]gin.H, 0, len(receiptJobs))
 	for _, receiptJob := range receiptJobs {
 		response := gin.H{
-			"receiptJob_id":     receiptJob.ID,
-			"status":     receiptJob.Status,
-			"created_at": receiptJob.CreatedAt,
-			"updated_at": receiptJob.UpdatedAt,
-			"pages_done": receiptJob.PagesDone,
+			"receiptJob_id": receiptJob.ID,
+			"status":        receiptJob.Status,
+			"created_at":    receiptJob.CreatedAt,
+			"updated_at":    receiptJob.UpdatedAt,
+			"pages_done":    receiptJob.PagesDone,
 		}
 
 		if receiptJob.Status == "completed" {
@@ -100,4 +125,3 @@ func (app *App) stopReceiptJobHandler(c *gin.Context) {
 	cancel()
 	c.Status(http.StatusNoContent)
 }
-

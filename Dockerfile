@@ -64,7 +64,8 @@ COPY --from=frontend /app/dist /app/web-app/dist
 
 # Copy the Go source files
 COPY ./go-app/local_db ./local_db
-COPY ./go-app/ocr ./ocr
+COPY ./go-app/vlm ./vlm
+COPY ./go-app/actualClient ./actualClient
 COPY ./go-app/*.go .
 
 # Import ARGs from top level

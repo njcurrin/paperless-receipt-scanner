@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"paperless-gpt/ocr"
+	"paperless-gpt/actualClient"
 	"paperless-gpt/local_db"
+	"paperless-gpt/vlm"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -79,6 +80,8 @@ var (
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
 	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
+	actualBaseURL                 = os.Getenv("ACTUAL_BASE_URL")
+	actualAPIToken                = os.Getenv("ACTUAL_API_TOKEN")
 
 	// Templates
 	titleTemplate         *template.Template
@@ -89,12 +92,13 @@ var (
 	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
 	adhocAnalysisTemplate *template.Template
+	receiptCartTemplate   *template.Template
 	templateMutex         sync.RWMutex
 
 	// Server-side settings
 	settings            Settings
 	settingsMutex       sync.RWMutex
-	customFieldsCache   []CustomField
+	customFieldsCache   []local_db.CustomField
 	customFieldsCacheMu sync.RWMutex
 )
 
@@ -115,22 +119,24 @@ func refreshCustomFieldsCache(client ClientInterface) {
 // App struct to hold dependencies
 type App struct {
 	Client             ClientInterface
+	ActualClient       actualClient.ActualClientInterface
 	Database           *gorm.DB
 	LLM                llms.Model
 	VisionLLM          llms.Model
-	ocrProvider        ocr.Provider      // OCR provider interface
-	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf", or "receipt_scanner"
-	docProcessor       DocumentProcessor // Optional: Can be used for mocking
-	localHOCRPath      string            // Path for saving hOCR files locally
-	localPDFPath       string            // Path for saving PDF files locally
-	createLocalHOCR    bool              // Whether to save hOCR files locally
-	createLocalPDF     bool              // Whether to create PDF files locally
-	pdfUpload          bool              // Whether to upload processed PDFs to paperless-ngx
-	pdfReplace         bool              // Whether to replace original document after upload
-	pdfCopyMetadata    bool              // Whether to copy metadata from original to uploaded PDF
-	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
-	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
-	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
+	vlmProvider        vlm.Provider             // OCR provider interface
+	vlmReceipts        vlm.ReceiptItemProcessor //Limiting the Receipt Processing to the LLM provider only for now
+	ocrProcessMode     string                   // OCR processing mode: "image" (default), "pdf" or "whole_pdf", or "receipt_scanner"
+	docProcessor       DocumentProcessor        // Optional: Can be used for mocking
+	localHOCRPath      string                   // Path for saving hOCR files locally
+	localPDFPath       string                   // Path for saving PDF files locally
+	createLocalHOCR    bool                     // Whether to save hOCR files locally
+	createLocalPDF     bool                     // Whether to create PDF files locally
+	pdfUpload          bool                     // Whether to upload processed PDFs to paperless-ngx
+	pdfReplace         bool                     // Whether to replace original document after upload
+	pdfCopyMetadata    bool                     // Whether to copy metadata from original to uploaded PDF
+	pdfOCRCompleteTag  string                   // Tag to add to documents that have been OCR processed
+	pdfOCRTagging      bool                     // Whether to add the OCR complete tag to processed PDFs
+	pdfSkipExistingOCR bool                     // Whether to skip processing PDFs that already have OCR detected
 }
 
 func main() {
@@ -153,7 +159,7 @@ func main() {
 
 	// Print version
 	printVersion()
-
+	//log.Info("Hello There")
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
 
@@ -193,9 +199,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Vision LLM client: %v", err)
 	}
-
+	var actualCli actualClient.ActualClientInterface
+	actualCli = actualClient.NewActualClient(actualBaseURL, actualAPIToken)
 	// Initialize OCR provider
-	var ocrProvider ocr.Provider
+	var vlmProvider vlm.Provider
+	var vlmReceiptProcessor vlm.ReceiptItemProcessor
 	providerType := os.Getenv("OCR_PROVIDER")
 	if providerType == "" {
 		providerType = "llm" // Default to LLM provider
@@ -210,6 +218,15 @@ func main() {
 	}
 
 	ocrPrompt := promptBuffer.String()
+
+	var cartPromptBuffer bytes.Buffer
+	err = receiptCartTemplate.Execute(&cartPromptBuffer, map[string]interface{}{
+		"Language": getLikelyLanguage(),
+	})
+	if err != nil {
+		log.Fatalf("error executing receipt template %v", err)
+	}
+	cartPrompt := cartPromptBuffer.String()
 
 	var visionLlmMaxTokens int
 	if maxTokensStr := os.Getenv("VISION_LLM_MAX_TOKENS"); maxTokensStr != "" {
@@ -247,7 +264,7 @@ func main() {
 		}
 	}
 
-	ocrConfig := ocr.Config{
+	ocrConfig := vlm.Config{
 		Provider:                 providerType,
 		GoogleProjectID:          os.Getenv("GOOGLE_PROJECT_ID"),
 		GoogleLocation:           os.Getenv("GOOGLE_LOCATION"),
@@ -255,6 +272,7 @@ func main() {
 		VisionLLMProvider:        visionLlmProvider,
 		VisionLLMModel:           visionLlmModel,
 		VisionLLMPrompt:          ocrPrompt,
+		VisionLLMCartPrompt:      cartPrompt,
 		AzureEndpoint:            azureDocAIEndpoint,
 		AzureAPIKey:              azureDocAIKey,
 		AzureModelID:             azureDocAIModelID,
@@ -285,9 +303,17 @@ func main() {
 	if providerType == "llm" && visionLlmProvider == "" {
 		log.Warn("OCR provider is set to LLM, but no VISION_LLM_PROVIDER is set. Disabling OCR.")
 	} else {
-		ocrProvider, err = ocr.NewProvider(ocrConfig)
+		vlmProvider, err = vlm.NewProvider(ocrConfig)
 		if err != nil {
 			log.Fatalf("Failed to initialize OCR provider: %v", err)
+		}
+
+		// Some providers (like the LLM implementation) also implement receipt item extraction.
+		// Capture that interface if available so receipt processing won't panic on nil.
+		if rp, ok := vlmProvider.(vlm.ReceiptItemProcessor); ok {
+			vlmReceiptProcessor = rp
+		} else {
+			log.Warn("Selected OCR provider does not support receipt item processing; receipt features will be disabled.")
 		}
 
 		// Validate OCR provider and processing mode compatibility
@@ -301,10 +327,12 @@ func main() {
 	// Initialize App with dependencies
 	app := &App{
 		Client:             client,
+		ActualClient:       actualCli,
 		Database:           database,
 		LLM:                llm,
 		VisionLLM:          visionLlm,
-		ocrProvider:        ocrProvider,
+		vlmProvider:        vlmProvider,
+		vlmReceipts:        vlmReceiptProcessor,
 		ocrProcessMode:     ocrProcessMode,
 		docProcessor:       nil, // App itself implements DocumentProcessor
 		localHOCRPath:      localHOCRPath,
@@ -374,6 +402,11 @@ func main() {
 		api.GET("/jobs/receipts", app.getAllReceiptJobsHandler)
 		api.POST("/jobs/receipts/:receiptJob_id/stop", app.stopReceiptJobHandler)
 
+		// Actual Budget endpoints
+		api.GET("/actual/budgets", app.getBudgetsHandler)
+		api.GET("/actual/budgets/:budgetId/categories", app.getBudgetCategoriesHandler)
+		api.POST("/actual/budgets/:budgetId/categories", app.saveBudgetCategoriesHandler)
+
 		// Endpoint to see if user enabled OCR
 		api.GET("/experimental/ocr", func(c *gin.Context) {
 			enabled := app.isOcrEnabled()
@@ -419,6 +452,12 @@ func main() {
 		router.GET("/favicon.ico", func(c *gin.Context) {
 			c.File("web-app/dist/favicon.ico")
 		})
+		router.GET("/receipts", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/connections", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
 	} else {
 		log.Info("Serving frontend files from embedded assets")
 		// Instead of wildcard, serve specific files
@@ -447,6 +486,13 @@ func main() {
 		})
 		// adhoc-analysis route
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// receipts route
+		router.GET("/receipts", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		router.GET("/connections", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}
@@ -492,6 +538,7 @@ func printVersion() {
 }
 
 func initLogger() {
+	logLevel = "debug"
 	switch logLevel {
 	case "debug":
 		log.SetLevel(logrus.DebugLevel)
@@ -511,10 +558,11 @@ func initLogger() {
 	log.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
+	log.SetOutput(os.Stdout)
 }
 
 func (app *App) isOcrEnabled() bool {
-	return app.ocrProvider != nil
+	return app.vlmProvider != nil
 }
 
 // validateOCRProviderModeCompatibility validates that the OCR provider supports the specified processing mode
@@ -595,8 +643,8 @@ func validateOrDefaultEnvVars() {
 	}
 
 	// Validate OCR provider if set
-	ocrProvider := os.Getenv("OCR_PROVIDER")
-	if ocrProvider == "azure" {
+	vlmProvider := os.Getenv("OCR_PROVIDER")
+	if vlmProvider == "azure" {
 		if azureDocAIEndpoint == "" {
 			log.Fatal("Please set the AZURE_DOCAI_ENDPOINT environment variable for Azure provider")
 		}
@@ -605,7 +653,7 @@ func validateOrDefaultEnvVars() {
 		}
 	}
 
-	if ocrProvider == "docling" {
+	if vlmProvider == "docling" {
 		if doclingURL == "" {
 			log.Fatal("Please set the DOCLING_URL environment variable for Docling provider")
 		}
@@ -825,6 +873,7 @@ func loadTemplates() error {
 	if err != nil {
 		return err
 	}
+	receiptCartTemplate, err = loadTemplate("receipt_cart_prompt.tmpl")
 	return nil
 }
 

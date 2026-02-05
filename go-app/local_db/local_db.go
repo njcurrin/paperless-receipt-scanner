@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"github.com/sirupsen/logrus"
 )
 
 var log = logrus.New()
@@ -155,4 +155,42 @@ func UpdateOcrPageResult(db *gorm.DB, docID int, pageIdx int, text string, ocrLi
 
 func DeleteOcrPageResults(db *gorm.DB, docID int) error {
 	return db.Where("document_id = ?", docID).Delete(&OCRPageResult{}).Error
+}
+
+func SaveSingleReceiptOCRResult(db *gorm.DB, docID int, pageIdx int, text string, ocrLimitHit bool, generationInfoJSON string) error {
+	var result Result
+	tx := db.Where("document_id = ? AND page_index = ?", docID, pageIdx).First(&result)
+	if tx.Error == nil {
+		result.VLMOCR = text
+		result.OcrLimitHit = ocrLimitHit
+		result.GenerationInfo = generationInfoJSON
+		return db.Save(&result).Error
+	} else if tx.Error != nil {
+		log.Debugf("SaveSingleReceiptOcrPageResult: db.First error: %v (is gorm.ErrRecordNotFound: %v)", tx.Error, errors.Is(tx.Error, gorm.ErrRecordNotFound))
+		if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+			result = Result{
+				DocumentID:     docID,
+				VLMOCR:         text,
+				OcrLimitHit:    ocrLimitHit,
+				GenerationInfo: generationInfoJSON,
+			}
+			return db.Create(&result).Error
+		} else {
+			log.Errorf("Unexpected DB error in SaveSingleOcrPageResult: %v", tx.Error)
+			return tx.Error
+		}
+	}
+	return nil
+}
+
+func SaveSingleReceiptItemResult(db *gorm.DB, itemName string, cost int, category string, generationInfoJSON string) error {
+	var result ReceiptItem
+	tx := db.Where("id = ? AND cart = ").First(&result)
+	if tx.Error == nil {
+		result.Title = itemName
+		result.Cost = cost
+		result.GenerationInfo = generationInfoJSON
+		return db.Save(&result).Error
+	}
+	return nil
 }

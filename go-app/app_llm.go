@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"paperless-gpt/local_db"
 	"slices"
 	"strings"
 	"sync"
@@ -360,7 +361,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	}
 
 	// Filter to get only the selected custom fields
-	var selectedCustomFields []CustomField
+	var selectedCustomFields []local_db.CustomField
 	for _, field := range allCustomFields {
 		for _, selectedID := range selectedFieldIDs {
 			if field.ID == selectedID {

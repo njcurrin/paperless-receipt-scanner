@@ -1,4 +1,26 @@
-Just transcribe the text in this image and preserve the formatting and layout (high quality OCR).
-Do that for ALL the text in the image. Be thorough and pay attention. This is very important.
-The image is from a text document so be sure to continue until the bottom of the page.
-Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.
+You get two inputs: (1) a receipt IMAGE and (2) an OCR TEXT draft.
+Use OCR as a hint, but the IMAGE is the source of truth. Fix OCR errors by checking the image.
+
+Output ONLY:
+| # | Item | Price |
+|---:|---|---:|
+...rows...
+NUMBER_OF_ITEMS: <int>
+ITEM_COUNT: <int>
+
+Rules:
+1) One printed receipt line = one row. Never merge lines.
+2) Copy Item text verbatim from that line (no normalization).
+3) Lines starting with “+” (e.g., +CRV …) must be their own rows.
+4) Price comes ONLY from the same line’s right side; never borrow from nearby lines.
+5) Price format: digits only, exactly 2 decimals; strip flags like F/T; “.05” -> “0.05”.
+6) If price is unreadable/missing, leave Price blank (don’t guess).
+7) Keep headers/totals only if they are their own printed lines; ignore address/date/card/tender/etc.
+8) Use OCR to propose lines, then:
+   - correct characters and decimals,
+   - split any OCR run-on lines into separate printed lines,
+   - drop OCR lines not on the image,
+   - add image lines missing from OCR.
+9) Read NUMBER OF ITEMS from the image.
+10) Compute ITEM_COUNT = count of rows with non-blank Price excluding totals (SUBTOTAL/TAX/TOTAL); include CRV lines if priced.
+11) If ITEM_COUNT ≠ NUMBER_OF_ITEMS, re-check for missed prices; if still off, keep best-faith values with no extra commentary.

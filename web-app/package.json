@@ -19,6 +19,7 @@
     "@heroicons/react": "^2.1.5",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
+    "@actual-app/api": "26.2.0",
     "axios": "^1.7.7",
     "classnames": "^2.5.1",
     "date-fns": "^4.1.0",

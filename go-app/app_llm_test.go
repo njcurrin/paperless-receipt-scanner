@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"paperless-gpt/local_db"
 	"testing"
 	"text/template"
 
@@ -360,11 +361,11 @@ func TestStripReasoning(t *testing.T) {
 
 // mockPaperlessClient is a mock implementation of the ClientInterface for testing.
 type mockPaperlessClient struct {
-	CustomFields []CustomField
+	CustomFields []local_db.CustomField
 	Error        error
 }
 
-func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
+func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]local_db.CustomField, error) {
 	if m.Error != nil {
 		return nil, m.Error
 	}
@@ -427,7 +428,7 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 	`
 
 	mockClient := &mockPaperlessClient{
-		CustomFields: []CustomField{
+		CustomFields: []local_db.CustomField{
 			{ID: 1, Name: "Invoice Number", DataType: "string"},
 			{ID: 2, Name: "Due Date", DataType: "date"},
 			{ID: 3, Name: "Amount", DataType: "float"},

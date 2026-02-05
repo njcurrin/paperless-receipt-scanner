@@ -1,19 +1,19 @@
 package main
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/local_db"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
-	"paperless-gpt/local_db"
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/gin-gonic/gin"
@@ -245,9 +245,6 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
 }
 
-
-
-
 func (app *App) getJobStatusHandler(c *gin.Context) {
 	jobID := c.Param("job_id")
 
@@ -415,7 +412,7 @@ func (app *App) reOCRPageHandler(c *gin.Context) {
 		reOcrCancellersMu.Unlock()
 	}()
 
-	result, err := app.ocrProvider.ProcessImage(reOcrCtx, imageContent, pageIdx+1)
+	result, err := app.vlmProvider.ProcessImage(reOcrCtx, imageContent, pageIdx+1)
 
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
