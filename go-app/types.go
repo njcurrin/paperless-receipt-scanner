@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"paperless-gpt/actualClient"
 	"paperless-gpt/local_db"
 
 	"gorm.io/gorm"
@@ -108,9 +109,10 @@ type AnalyzeDocumentsRequest struct {
 
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
-	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
+	CustomFieldsEnable        bool                    `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs   []int                   `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode     string                  `json:"custom_fields_write_mode"` // "append" or "replace"
+	SelectedReceiptCategories []actualClient.Category `json:"selected_receipt_categories"`
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)

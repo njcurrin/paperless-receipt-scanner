@@ -52,17 +52,17 @@ type Result struct {
 }
 
 type Receipt struct {
-	ID             uint           `gorm:"primaryKey"`
-	DocumentID     int            `gorm:"index;not null"`
-	Title          string         `gorm:"type:TEXT"`
-	Payee          string         `gorm:"size:255"`
-	PageIndex      int            `gorm:"not null"`
-	TradOCR        string         `gorm:"size:1048576"`
-	TotalTender    int64          `gorm:"index;not null"`
-	ItemsSold      int            `gorm:"index;not null"`
-	TaxCents       int            `gorm:"index"`
-	ResultID       *uint          `gorm:"index"`
-	Cart           []*ReceiptItem `gorm:"type:json"`
+	ID             uint          `gorm:"primaryKey"`
+	DocumentID     int           `gorm:"index;not null"`
+	Title          string        `gorm:"type:TEXT"`
+	Payee          string        `gorm:"size:255"`
+	PageIndex      int           `gorm:"not null"`
+	TradOCR        string        `gorm:"size:1048576"`
+	TotalTender    int64         `gorm:"index;not null"`
+	ItemsSold      int           `gorm:"index;not null"`
+	TaxCents       int           `gorm:"index"`
+	ResultID       *uint         `gorm:"index"`
+	Cart           []ReceiptItem `gorm:"type:json"`
 	OcrLimitHit    bool
 	GenerationInfo string `gorm:"type:TEXT"`
 	CreatedAt      time.Time
@@ -72,6 +72,7 @@ type Receipt struct {
 type ReceiptItem struct {
 	ID             uint   `gorm:"primaryKey"`
 	Title          string `gorm:"size:255"`
+	GeneratedName  string `gorm:"size:255"`
 	Cost           int    `gorm:"not null"`
 	Category       string `gorm:"size:255;index;not null"`
 	GenerationInfo string `gorm:"type:TEXT"`

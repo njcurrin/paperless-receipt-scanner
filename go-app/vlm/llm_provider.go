@@ -33,6 +33,7 @@ type LLMProvider struct {
 	llm         llms.Model
 	prompt      string
 	cartPrompt  string
+	catePrompt  string
 	maxTokens   int
 	temperature *float64
 	ollamaTopK  *int
@@ -41,7 +42,11 @@ type LLMProvider struct {
 type ReceiptItemResponse struct {
 	Title string      `json:"Title"`
 	Cost  json.Number `json:"Cost"`
-	Names []string    `json:"Names"`
+}
+
+type ItemCategoryResponse struct {
+	Title    string `json:"Title"`
+	Category string `json:"Category"`
 }
 
 // parseReceiptItems attempts to unmarshal an LLM JSON response into a slice of
@@ -50,7 +55,7 @@ type ReceiptItemResponse struct {
 func sanitizeResponse(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if len(s) > 255 {
-		return "", fmt.Errorf("error in llm Title Response: title too long")
+		return "", fmt.Errorf("error in llm short Response: too long")
 	}
 	var b strings.Builder
 	for _, r := range s {
@@ -75,6 +80,29 @@ func parseCostCents(n json.Number) (int, error) {
 		return 0, errors.New("cost negative")
 	}
 	return cents, nil
+}
+
+func extractJSONObject(s string) (string, error) {
+	s = strings.TrimSpace(s)
+
+	// Strip fenced code blocks like ```json ... ```
+	if strings.HasPrefix(s, "```") {
+		// remove leading ```
+		if idx := strings.Index(s, "\n"); idx != -1 {
+			s = strings.TrimSpace(s[idx+1:])
+		}
+		// remove trailing ```
+		if idx := strings.LastIndex(s, "```"); idx != -1 {
+			s = strings.TrimSpace(s[:idx])
+		}
+	}
+
+	start := strings.Index(s, "{")
+	end := strings.LastIndex(s, "}")
+	if start == -1 || end == -1 || end <= start {
+		return "", fmt.Errorf("no JSON object found in response")
+	}
+	return s[start : end+1], nil
 }
 
 func newLLMProvider(config Config) (*LLMProvider, error) {
@@ -116,6 +144,7 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 		llm:         model,
 		prompt:      config.VisionLLMPrompt,
 		cartPrompt:  config.VisionLLMCartPrompt,
+		catePrompt:  config.LLMCategoryPrompt,
 		maxTokens:   config.VisionLLMMaxTokens,
 		temperature: config.VisionLLMTemperature,
 		ollamaTopK:  config.OllamaOcrTopK,
@@ -223,7 +252,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	return result, nil
 }
 
-func (p *LLMProvider) ProcessReceiptCartItems(ctx context.Context, imageContent []byte, itemsSold int, originalContent string, receiptJobID string) ([]*local_db.ReceiptItem, error) {
+func (p *LLMProvider) ProcessReceiptCartItems(ctx context.Context, imageContent []byte, itemsSold int, originalContent string, receiptJobID string) ([]local_db.ReceiptItem, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider": p.provider,
 		"model":    p.model,
@@ -231,7 +260,7 @@ func (p *LLMProvider) ProcessReceiptCartItems(ctx context.Context, imageContent 
 	})
 
 	logger.Info("Processing Items into json")
-	cart := make([]*local_db.ReceiptItem, 0, itemsSold)
+	cart := make([]local_db.ReceiptItem, 0, itemsSold)
 
 	var parts []llms.ContentPart
 	var imagePart llms.ContentPart
@@ -239,7 +268,7 @@ func (p *LLMProvider) ProcessReceiptCartItems(ctx context.Context, imageContent 
 
 	finalPrompt := "<prompt>" + p.cartPrompt + "</prompt><ocrText>" + originalContent + "</ocrText><itemsSold>" + strconv.Itoa(itemsSold) + "</itemsSold>"
 
-	logger.Info("Final Prompt: ", finalPrompt)
+	//logger.Info("Final Prompt: ", finalPrompt)
 
 	if providerName == "openai" || providerName == "mistral" {
 		logger.Info("Using OpenAI image format")
@@ -306,22 +335,7 @@ func (p *LLMProvider) ProcessReceiptCartItems(ctx context.Context, imageContent 
 			return nil, fmt.Errorf("invalid LLM JSON Cost: %w", err)
 		}
 
-		// titles := make([]string, 0, len(item.Title)+1)
-		// for _, name := range item.Names {
-		// 	sanitizedName, err := sanitizeResponse(name)
-		// 	if err != nil {
-		// 		continue
-		// 	}
-		// 	if strings.TrimSpace(sanitizedName) == "" {
-		// 		continue
-		// 	}
-		// 	titles = append(titles, sanitizedName)
-		// }
-		// if len(titles) == 0 && strings.TrimSpace(title) != "" {
-		// 	titles = append(titles, title)
-		// }
-
-		cart = append(cart, &local_db.ReceiptItem{
+		cart = append(cart, local_db.ReceiptItem{
 			Title:          title,
 			Cost:           costCents,
 			Category:       "", // category generation not implemented yet
@@ -332,6 +346,83 @@ func (p *LLMProvider) ProcessReceiptCartItems(ctx context.Context, imageContent 
 	// logger.WithField("content_length", len(result.Text)).WithFields(completion.Choices[0].GenerationInfo).Info("Successfully processed receipt")
 	return cart, nil
 
+}
+
+func (p *LLMProvider) ProcessReceiptCategories(ctx context.Context, cart []local_db.ReceiptItem, availableCategories []string, receiptJobID string) ([]local_db.ReceiptItem, error) {
+	workCart := cart
+
+	logger := log.WithFields(logrus.Fields{
+		"provider": p.provider,
+		"model":    p.model,
+		"jobID":    receiptJobID,
+	})
+
+	logger.Info("Processing Items into json")
+
+	var parts []llms.ContentPart
+	providerName := strings.ToLower(p.provider)
+
+	workPrompt := "<prompt>" + p.catePrompt + "</prompt>"
+	allowed := strings.Builder{}
+	for _, c := range availableCategories {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		allowed.WriteString("- " + c + "\n")
+	}
+
+	logger.Info("Final Prompt: ", workPrompt)
+	var callOpts []llms.CallOption
+	if p.maxTokens > 0 {
+		callOpts = append(callOpts, llms.WithMaxTokens(p.maxTokens))
+	}
+	if p.temperature != nil {
+		callOpts = append(callOpts, llms.WithTemperature(*p.temperature))
+	}
+	if providerName == "ollama" && p.ollamaTopK != nil {
+		callOpts = append(callOpts, llms.WithTopK(*p.ollamaTopK))
+	}
+	for idx := range workCart {
+		logger.Info("Item:", workCart[idx].Title)
+		finalPrompt := workPrompt + allowed.String() + "<Title>" + workCart[idx].GeneratedName + "</Title>"
+		var item ItemCategoryResponse
+		parts = []llms.ContentPart{
+			llms.TextPart(finalPrompt),
+		}
+		logger.Info("Prompt:", finalPrompt)
+		response, err := p.llm.GenerateContent(ctx, []llms.MessageContent{
+			{
+				Parts: parts,
+				Role:  llms.ChatMessageTypeHuman,
+			},
+		}, callOpts...)
+		if err != nil {
+			logger.WithError(err).Error("Failed to get response from vision model")
+			return nil, fmt.Errorf("error getting response from LLM: %w", err)
+		}
+		raw := response.Choices[0].Content
+		jsonText, err := extractJSONObject(raw)
+		if err != nil {
+
+			return nil, fmt.Errorf("unable to extract json")
+		}
+		dec := json.NewDecoder(strings.NewReader(jsonText))
+		dec.UseNumber()
+		logger.Info("Response:", jsonText)
+		if err := dec.Decode(&item); err != nil {
+			logger.Info("invalid LLM JSON: %w", err)
+			return nil, fmt.Errorf("invalid LLM JSON: %w", err)
+		}
+		//if !strings.EqualFold(workCart[i].Title, item.Category) {
+		//	return nil, fmt.Errorf("LLM did not respond with same title")
+		//}
+		workCart[idx].Category = item.Category
+		logger.Info("Category Stored: ", workCart[idx].Category)
+
+	}
+
+	return workCart, nil
 }
 
 // createOpenAIClient creates a new OpenAI vision model client

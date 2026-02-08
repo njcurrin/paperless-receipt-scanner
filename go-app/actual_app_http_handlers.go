@@ -75,9 +75,77 @@ func (app *App) saveBudgetCategoriesHandler(c *gin.Context) {
 			budgetID, cat.ID, cat.Name, cat.GroupID,
 		)
 	}
+	settingsMutex.Lock()
+	settings.SelectedReceiptCategories = req.Categories
+	_ = saveSettingsLocked()
+	settingsMutex.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{
 		"budgetId": budgetID,
 		"saved":    len(req.Categories),
+	})
+}
+
+func (app *App) getBudgetAccountsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	if app.ActualClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Actual client not configured"})
+		return
+	}
+
+	budgetID := c.Param("budgetId")
+	if budgetID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing budgetId"})
+		return
+	}
+
+	accounts, err := app.ActualClient.GetBudgetAccounts(ctx, budgetID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, accounts)
+}
+
+func (app *App) postActualTransaction(c *gin.Context) {
+	budgetID := strings.TrimSpace(c.Param("budgetId"))
+	if budgetID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing budgetId"})
+		return
+	}
+	transactionID := strings.TrimSpace(c.Param("transactionId"))
+	if transactionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing transactionId"})
+		return
+	}
+
+	if app.ActualClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Actual client not configured"})
+		return
+	}
+
+	var tx actualClient.Transaction
+	if err := c.ShouldBindJSON(&tx); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON payload"})
+		return
+	}
+
+	if strings.TrimSpace(tx.ID) == "" {
+		tx.ID = transactionID
+	} else if tx.ID != transactionID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "transactionId in body does not match path"})
+		return
+	}
+
+	accountID := strings.TrimSpace(tx.AccountId)
+	if err := app.ActualClient.UpdateTransaction(c.Request.Context(), budgetID, accountID, &tx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated": tx.ID,
 	})
 }

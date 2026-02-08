@@ -52,7 +52,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	}
 
 	prompt := promptBuffer.String()
-	log.Debugf("Correspondent suggestion prompt: %s", prompt)
+	log.Info("Correspondent suggestion prompt: %s", prompt)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -277,7 +277,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	}
 
 	prompt := promptBuffer.String()
-	logger.Debugf("Title suggestion prompt: %s", prompt)
+	logger.Debugf("Title suggestion prompt: %s", templateData)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{

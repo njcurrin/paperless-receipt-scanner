@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"paperless-gpt/local_db"
+	"strconv"
+	"strings"
 
 	//"encoding/json"
 
@@ -20,6 +23,34 @@ import (
 	//"github.com/gin-gonic/gin"
 )
 
+type suggestedName struct {
+	Title         string `json:"itemTitle"`
+	SuggestedName string `json:"improvedTitle"`
+}
+
+func extractJSONObject(s string) (string, error) {
+	s = strings.TrimSpace(s)
+
+	// Strip fenced code blocks like ```json ... ```
+	if strings.HasPrefix(s, "```") {
+		// remove leading ```
+		if idx := strings.Index(s, "\n"); idx != -1 {
+			s = strings.TrimSpace(s[idx+1:])
+		}
+		// remove trailing ```
+		if idx := strings.LastIndex(s, "```"); idx != -1 {
+			s = strings.TrimSpace(s[:idx])
+		}
+	}
+
+	start := strings.Index(s, "{")
+	end := strings.LastIndex(s, "}")
+	if start == -1 || end == -1 || end <= start {
+		return "", fmt.Errorf("no JSON object found in response")
+	}
+	return s[start : end+1], nil
+}
+
 // type ProcessedReceipt struct {
 // 	ID           int
 // 	Title        string
@@ -31,7 +62,7 @@ import (
 
 // processReceiptHandler runs OCR in "receipt_scanner" mode for a document.
 // totalTender/itemsSold come from the web request (via receiptJob) so we can steer the cart prompt.
-func (app *App) processReceipt(ctx context.Context, documentID int, totalTender int64, itemsSold int, options ReceiptOptions, receiptJobID string) (*local_db.Receipt, error) {
+func (app *App) processReceipt(ctx context.Context, documentID int, totalTender int64, itemsSold int, date string, options ReceiptOptions, receiptJobID string) (*local_db.Receipt, error) {
 	// Steps to ProcessReceipt
 	// 	Get Receipt Document Images from Paperless and convert to bytes for vlm
 	//	ProcessDocumentOCR to get the OCRTotalTender and OCRItemsSold
@@ -164,16 +195,56 @@ func (app *App) processReceipt(ctx context.Context, documentID int, totalTender 
 		if err != nil {
 			return nil, fmt.Errorf("error getting receipt item: %w", err)
 		}
-		workReceipt.Cart = updatedCart
 		subTotalCents := 0
-		for i := range workReceipt.Cart {
-			// pageLogger.Info("Items: ", workReceipt.Cart[i].Title)
-			subTotalCents += workReceipt.Cart[i].Cost
+		for _, item := range updatedCart {
+			// pageLogger.Info("Items: ", item.Title)
+			subTotalCents += item.Cost
+		}
+		pageLogger.Info("SubTotal: ", strconv.Itoa(subTotalCents))
+		for idx := range updatedCart {
+			var newName suggestedName
+			response, err := app.getSuggestedTitle(ctx, originalDocument.Content, updatedCart[idx].Title, receiptLogger)
+			if err != nil {
+				return nil, fmt.Errorf("error getting receipt item: %w", err)
+			}
+			raw := response
+			jsonText, err := extractJSONObject(raw)
+			if err != nil {
+
+				return nil, fmt.Errorf("unable to extract json")
+			}
+			dec := json.NewDecoder(strings.NewReader(jsonText))
+			dec.UseNumber()
+			logger.Info("Response:", jsonText)
+			if err := dec.Decode(&newName); err != nil {
+				logger.Info("invalid LLM JSON: %w", err)
+				return nil, fmt.Errorf("invalid LLM JSON: %w", err)
+			}
+			updatedCart[idx].GeneratedName = newName.SuggestedName
+			receiptLogger.Info("Updatd Title: ", updatedCart[idx].GeneratedName)
 		}
 
+		for idx := range updatedCart {
+			logger.Info("New Names:", updatedCart[idx].GeneratedName)
+		}
+
+		settingsMutex.RLock()
+		availableCategories := make([]string, 0, len(settings.SelectedReceiptCategories))
+		for _, c := range settings.SelectedReceiptCategories {
+			availableCategories = append(availableCategories, c.Name)
+		}
+		settingsMutex.RUnlock()
+
+		updatedCart, err = app.vlmReceipts.ProcessReceiptCategories(ctx, updatedCart, availableCategories, receiptJobID)
+
+		//app.vlmReceipts.ProcessReceiptCategories(ctx, updatedCart, availableCategories, receiptJobID)
 		workReceipt.TaxCents = int(workReceipt.TotalTender) - subTotalCents
 
-		pageLogger.Info("Receipt Tax: ", workReceipt.TaxCents)
+		pageLogger.WithFields(logrus.Fields{
+			"total_tender_cents": int(workReceipt.TotalTender),
+			"subtotal_cents":     subTotalCents,
+			"tax_cents":          workReceipt.TaxCents,
+		}).Info("Receipt totals")
 		pageLogger.Info("Item OCR Complete for document %d, page %d, jobID %s", documentID, i+1, receiptJobID)
 		var availablePayees []string
 		var blockListPayess []string
@@ -185,6 +256,7 @@ func (app *App) processReceipt(ctx context.Context, documentID int, totalTender 
 
 		pageLogger.Info("Payee: ", workReceipt.Payee)
 
+		workReceipt.Cart = updatedCart
 		//ocrTexts = append(ocrTexts, result.Text)
 		//ocrResults = append(ocrResults, result)
 	}

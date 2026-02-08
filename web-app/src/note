@@ -1,0 +1,162 @@
+   {
+      "account": "15fc51b7-277d-4141-b184-42269504d062",
+      "category": null,
+      "amount": -6381,
+      "notes": "FOOD MAXX ##488",
+      "date": "2026-01-27",
+      "cleared": true,
+      "subtransactions": [
+        {
+            "amount": -2202,
+            "category": null,
+            "notes": "Name"
+        },
+        {
+            "amount": -4179,
+            "category": null,
+            "notes": "2"
+        }
+    ]
+    }
+
+    {
+  "transaction": {
+    "account": "729cb492-4eab-468b-9522-75d455cded22",
+    "category": "9fa2550c-c3ff-498b-8df6-e0fbe2a62e0e",
+    "amount": -7374,
+    "date": "2023-06-23",
+    "cleared": true
+  }
+}
+
+{
+  "data": [
+    {
+      "account": "15fc51b7-277d-4141-b184-42269504d062",
+      "category": null,
+      "amount": -6381,
+      "payee": "25679a7b-0c33-4e4b-9db7-a8e59030bef5",
+      "notes": "FOOD MAXX ##488",
+      "date": "2026-01-27",
+      "imported_id": "TRN-a24c142e-238e-47cf-bff3-d580587761a4",
+      "error": null,
+      "imported_payee": "FoodMaxx",
+      "cleared": true,
+      "subtransactions": [
+               {
+            "amount": -2202,
+            "category": null,
+            "notes": "Name"
+        },
+        {
+            "amount": -4179,
+            "category": null,
+            "notes": "2"
+        }
+      ]
+    }
+]
+}
+
+{
+  "account": "15fc51b7-277d-4141-b184-42269504d062",
+  "category": null,
+  "amount": -6381,
+  "date": "2026-01-27",
+  "payee": "25679a7b-0c33-4e4b-9db7-a8e59030bef5",
+  "notes": "FOOD MAXX ##488",
+  "sort_order": 1770522683649,
+  "cleared": true,
+  "subtransactions": [
+    {
+      "amount": -298,
+      "category": "541836f1-e756-4473-a5d0-6c1d3f06c7fa",
+      "notes": "Coke Classic Single (COKE CLASSIC SINGL)"
+    },
+    {
+      "amount": -5,
+      "category": "667e75f1-c852-488b-bea9-04825e352f32",
+      "notes": "California Redemption Value Beverage 24 OZ (CRV BEV 24 OZ)"
+    },
+    {
+      "amount": -298,
+      "category": "541836f1-e756-4473-a5d0-6c1d3f06c7fa",
+      "notes": "Fanta Orange (FANTA ORANGE)"
+    },
+    {
+      "amount": -5,
+      "category": "667e75f1-c852-488b-bea9-04825e352f32",
+      "notes": "California Redemption Value Beverage 24 OZ (CRV BEV 24 OZ)"
+    },
+    {
+      "amount": -499,
+      "category": "af375fd4-d759-46b3-bffe-74a856151d57",
+      "notes": "Flay's Churro Crème Filled Lemon (FLAY CH CR FLM LMN)"
+    },
+    {
+      "amount": -499,
+      "category": "af375fd4-d759-46b3-bffe-74a856151d57",
+      "notes": "Flay's Fruit Chili Cheese (FLAY FRTO CHLI CHS)"
+    },
+    {
+      "amount": -499,
+      "category": "d4b0f075-3343-4408-91ed-fae94f74e5bf",
+      "notes": "Flay's Refried Beans Frijoles Black Bean (FLAY RFLS FH BBQ)"
+    },
+    {
+      "amount": -1099,
+      "category": "541836f1-e756-4473-a5d0-6c1d3f06c7fa",
+      "notes": "Gatorade Glacier Freeze (GTOR GLACIER FRZ)"
+    },
+    {
+      "amount": -40,
+      "category": "667e75f1-c852-488b-bea9-04825e352f32",
+      "notes": "California Redemption Value Grocery No Tax 8 Pack (GROC CRV NO TX 8PK)"
+    },
+    {
+      "amount": -449,
+      "category": "af375fd4-d759-46b3-bffe-74a856151d57",
+      "notes": "TAKIS Fuego (TAKIS FUEGO)"
+    },
+    {
+      "amount": -388,
+      "category": "572ae118-9b00-40d9-942c-28fae2a118c3",
+      "notes": "Homemade Milk (BV HOMO MILK)"
+    },
+    {
+      "amount": -399,
+      "category": "af375fd4-d759-46b3-bffe-74a856151d57",
+      "notes": "Kezys Topping Snack Pack (KZYS OF TPC SNK PK)"
+    },
+    {
+      "amount": -249,
+      "category": "572ae118-9b00-40d9-942c-28fae2a118c3",
+      "notes": "SSF Cream Cheese Jalapeno (SSF CRM CHS JALAPN)"
+    },
+    {
+      "amount": -189,
+      "category": "af375fd4-d759-46b3-bffe-74a856151d57",
+      "notes": "SSF Cubes Club Jelly (SSF CUBES CLBY JK)"
+    },
+    {
+      "amount": -429,
+      "category": "572ae118-9b00-40d9-942c-28fae2a118c3",
+      "notes": "Stonyfield Greek Yogurt Vanilla (SSF GRK YOG VAN)"
+    },
+    {
+      "amount": -649,
+      "category": "572ae118-9b00-40d9-942c-28fae2a118c3",
+      "notes": "Sargento Mozzarella String Cheese (SSF MOZZ STR CHS)"
+    },
+    {
+      "amount": -489,
+      "category": "f38cef21-96ed-4cba-966f-c7e9409861eb",
+      "notes": "Gallo Salame (GALLO SALAME)"
+    },
+    {
+      "amount": -699,
+      "category": "f38cef21-96ed-4cba-966f-c7e9409861eb",
+      "notes": "Gallo Pepperoni Slice (GALO PEPPERONI SLC)"
+    }
+  ]
+}

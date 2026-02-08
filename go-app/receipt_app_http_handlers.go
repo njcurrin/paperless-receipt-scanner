@@ -19,9 +19,12 @@ func (app *App) submitReceiptJobHandler(c *gin.Context) {
 
 	// Optional body allows client to pass documentId, totalTender, itemsSold
 	type receiptJobRequest struct {
-		DocumentID  int   `json:"documentId"`
-		TotalTender int64 `json:"totalTender"`
-		ItemsSold   int   `json:"itemsSold"`
+		DocumentID  int    `json:"documentId"`
+		TotalTender int64  `json:"totalTender"`
+		ItemsSold   int    `json:"itemsSold"`
+		ReceiptDate string `json:"receiptDate"`
+		BudgetID    string `json:"budgetId"`
+		AccountID   string `json:"accountId"`
 	}
 
 	var req receiptJobRequest
@@ -47,6 +50,9 @@ func (app *App) submitReceiptJobHandler(c *gin.Context) {
 		DocumentID:  documentID,
 		TotalTender: req.TotalTender,
 		ItemsSold:   req.ItemsSold,
+		Date:        req.ReceiptDate,
+		BudgetID:    req.BudgetID,
+		AccountID:   req.AccountID,
 		Status:      "pending",
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),

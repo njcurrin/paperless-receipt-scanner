@@ -36,7 +36,8 @@ type Provider interface {
 }
 
 type ReceiptItemProcessor interface {
-	ProcessReceiptCartItems(ctx context.Context, imageContent []byte, itemsSold int, originalContent string, receiptJobID string) ([]*local_db.ReceiptItem, error)
+	ProcessReceiptCartItems(ctx context.Context, imageContent []byte, itemsSold int, originalContent string, receiptJobID string) ([]local_db.ReceiptItem, error)
+	ProcessReceiptCategories(ctx context.Context, cart []local_db.ReceiptItem, availableCategories []string, receiptJobID string) ([]local_db.ReceiptItem, error)
 }
 
 // Config holds the OCR provider configuration
@@ -66,6 +67,7 @@ type Config struct {
 	VisionLLMModel      string
 	VisionLLMPrompt     string
 	VisionLLMCartPrompt string
+	LLMCategoryPrompt   string
 
 	// Azure Document Intelligence settings
 	AzureEndpoint            string

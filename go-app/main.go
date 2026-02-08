@@ -93,6 +93,7 @@ var (
 	ocrTemplate           *template.Template
 	adhocAnalysisTemplate *template.Template
 	receiptCartTemplate   *template.Template
+	receiptCateTemplate   *template.Template
 	templateMutex         sync.RWMutex
 
 	// Server-side settings
@@ -228,6 +229,15 @@ func main() {
 	}
 	cartPrompt := cartPromptBuffer.String()
 
+	var catePromptBuffer bytes.Buffer
+	err = receiptCateTemplate.Execute(&catePromptBuffer, map[string]interface{}{
+		"Language": getLikelyLanguage(),
+	})
+	if err != nil {
+		log.Fatalf("error executing receipt template %v", err)
+	}
+	catePrompt := catePromptBuffer.String()
+
 	var visionLlmMaxTokens int
 	if maxTokensStr := os.Getenv("VISION_LLM_MAX_TOKENS"); maxTokensStr != "" {
 		if parsed, err := strconv.Atoi(maxTokensStr); err == nil {
@@ -273,6 +283,7 @@ func main() {
 		VisionLLMModel:           visionLlmModel,
 		VisionLLMPrompt:          ocrPrompt,
 		VisionLLMCartPrompt:      cartPrompt,
+		LLMCategoryPrompt:        catePrompt,
 		AzureEndpoint:            azureDocAIEndpoint,
 		AzureAPIKey:              azureDocAIKey,
 		AzureModelID:             azureDocAIModelID,
@@ -404,8 +415,11 @@ func main() {
 
 		// Actual Budget endpoints
 		api.GET("/actual/budgets", app.getBudgetsHandler)
+		api.GET("/actual/budgets/:budgetId/accounts", app.getBudgetAccountsHandler)
 		api.GET("/actual/budgets/:budgetId/categories", app.getBudgetCategoriesHandler)
 		api.POST("/actual/budgets/:budgetId/categories", app.saveBudgetCategoriesHandler)
+		api.POST("/budgets/:budgetId/:transactionId", app.postActualTransaction)
+		api.POST("/actual/budgets/:budgetId/:transactionId", app.postActualTransaction)
 
 		// Endpoint to see if user enabled OCR
 		api.GET("/experimental/ocr", func(c *gin.Context) {
@@ -874,6 +888,13 @@ func loadTemplates() error {
 		return err
 	}
 	receiptCartTemplate, err = loadTemplate("receipt_cart_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	receiptCateTemplate, err = loadTemplate("receipt_categories_prompt.tmpl")
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -28,6 +28,9 @@ type ReceiptJob struct {
 	DocumentID  int
 	TotalTender int64
 	ItemsSold   int
+	Date        string
+	BudgetID    string
+	AccountID   string
 	Status      string // "pending", "in_progress", "completed", "failed", "cancelled"
 	Result      string // Receipt result (combined text) or error message
 	CreatedAt   time.Time
@@ -38,16 +41,35 @@ type ReceiptJob struct {
 }
 
 type receiptResultItem struct {
-	Title string   `json:"title"`
-	Cost  int      `json:"cost"`
-	Names []string `json:"titles,omitempty"`
+	Title         string `json:"title"`
+	GeneratedName string `json:"generatedName"`
+	Cost          int    `json:"cost"`
+	Category      string `json:"category"`
+}
+
+type receiptJobTransactionPayload struct {
+	ID            string  `json:"id"`
+	ParentId      *string `json:"parent_id"`
+	AccountId     string  `json:"account"`
+	Category      *string `json:"category"`
+	Amount        int     `json:"amount"`
+	Payee         string  `json:"payee"`
+	Notes         string  `json:"notes,omitempty"`
+	Date          string  `json:"date"`
+	ImportedPayee *string `json:"imported_payee"`
+	TransferId    *string `json:"transfer_id"`
+	SortOrder     int64   `json:"sort_order"`
+	Cleared       bool    `json:"cleared"`
 }
 
 type receiptJobResultPayload struct {
-	PromptName    string              `json:"promptName"`
-	CombinedText  string              `json:"combinedText,omitempty"`
-	Cart          []receiptResultItem `json:"cart"`
-	CartItemNames []string            `json:"cartItemTitles"`
+	PromptName         string                        `json:"promptName"`
+	CombinedText       string                        `json:"combinedText,omitempty"`
+	Payee              string                        `json:"payee,omitempty"`
+	Cart               []receiptResultItem           `json:"cart"`
+	TaxCents           int                           `json:"taxCents,omitempty"`
+	MatchedTransaction *receiptJobTransactionPayload `json:"matchedTransaction,omitempty"`
+	TransactionError   string                        `json:"transactionError,omitempty"`
 }
 
 // ReceiptJobStore manages jobs and their statuses
@@ -217,11 +239,17 @@ func processReceiptJob(app *App, receiptJob *ReceiptJob) {
 	// }
 	receiptLogger.Info("Hello There!")
 
+	receiptTotalTender := receiptJob.TotalTender
+	if receiptTotalTender < 0 {
+		receiptTotalTender = -receiptTotalTender
+	}
+
 	processedReceipt, err := app.processReceipt(
 		receiptJobCtx,
 		receiptJob.DocumentID,
-		receiptJob.TotalTender,
+		receiptTotalTender,
 		receiptJob.ItemsSold,
+		receiptJob.Date,
 		options,
 		receiptJob.ID,
 	)
@@ -242,28 +270,59 @@ func processReceiptJob(app *App, receiptJob *ReceiptJob) {
 	}
 
 	cartItems := make([]receiptResultItem, 0, len(processedReceipt.Cart))
-	cartItemTitles := make([]string, 0, len(processedReceipt.Cart))
 	for _, cartItem := range processedReceipt.Cart {
-		if cartItem == nil {
-			continue
-		}
-		titles := append([]string(nil), cartItem.Title)
-		if len(titles) == 0 && cartItem.Title != "" {
-			titles = []string{cartItem.Title}
-		}
 		cartItems = append(cartItems, receiptResultItem{
-			Title: cartItem.Title,
-			Cost:  cartItem.Cost,
-			Names: titles,
+			Title:         cartItem.Title,
+			GeneratedName: cartItem.GeneratedName,
+			Cost:          cartItem.Cost,
+			Category:      cartItem.Category,
 		})
-		cartItemTitles = append(cartItemTitles, titles...)
+		receiptLogger.Info("Result Category: ", cartItem.Category)
+	}
+
+	var matchedTransaction *receiptJobTransactionPayload
+	var transactionError string
+	if app.ActualClient == nil {
+		transactionError = "Actual client not configured"
+	} else if receiptJob.BudgetID == "" || receiptJob.AccountID == "" || receiptJob.Date == "" || receiptJob.TotalTender == 0 {
+		transactionError = "transaction match skipped: missing budgetId, accountId, receipt date, or amount"
+	} else {
+		tx, err := app.ActualClient.FindTransactionByDateAndAmount(
+			receiptJobCtx,
+			receiptJob.BudgetID,
+			receiptJob.AccountID,
+			receiptJob.Date,
+			int(receiptJob.TotalTender),
+		)
+		if err != nil {
+			transactionError = err.Error()
+			receiptLogger.WithError(err).Warn("Failed to match transaction")
+		} else if tx != nil {
+			matchedTransaction = &receiptJobTransactionPayload{
+				ID:            tx.ID,
+				ParentId:      tx.ParentId,
+				AccountId:     tx.AccountId,
+				Category:      tx.Category,
+				Amount:        tx.Amount,
+				Payee:         tx.PayeeId,
+				Notes:         tx.Notes,
+				Date:          tx.Date,
+				ImportedPayee: tx.ImportedPayee,
+				TransferId:    tx.TransferId,
+				SortOrder:     tx.SortOrder,
+				Cleared:       tx.Cleared,
+			}
+		}
 	}
 
 	resultPayload := receiptJobResultPayload{
-		PromptName:    "receipt_cart_prompt",
-		CombinedText:  processedReceipt.TradOCR,
-		Cart:          cartItems,
-		CartItemNames: cartItemTitles,
+		PromptName:         "receipt_cart_prompt",
+		CombinedText:       processedReceipt.TradOCR,
+		Payee:              processedReceipt.Payee,
+		Cart:               cartItems,
+		TaxCents:           processedReceipt.TaxCents,
+		MatchedTransaction: matchedTransaction,
+		TransactionError:   transactionError,
 	}
 	resultJSON, err := json.Marshal(resultPayload)
 	if err != nil {
