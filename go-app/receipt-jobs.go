@@ -3,8 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -239,6 +243,24 @@ func processReceiptJob(app *App, receiptJob *ReceiptJob) {
 	// }
 	receiptLogger.Info("Hello There!")
 
+	document, err := app.Client.GetDocument(receiptJobCtx, receiptJob.DocumentID)
+	if err != nil {
+		receiptLogger.Errorf("Error fetching document for receiptJob %s: %v", receiptJob.ID, err)
+		receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "failed", err.Error())
+		return
+	}
+
+	fieldTypes := getCustomFieldTypeLookup(app.Client)
+	totalTenderCents, itemsSold, err := extractReceiptCustomFields(document, fieldTypes)
+	if err != nil {
+		receiptLogger.Errorf("Missing/invalid receipt custom fields for receiptJob %s: %v", receiptJob.ID, err)
+		receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "failed", err.Error())
+		return
+	}
+
+	receiptJob.TotalTender = totalTenderCents
+	receiptJob.ItemsSold = itemsSold
+
 	receiptTotalTender := receiptJob.TotalTender
 	if receiptTotalTender < 0 {
 		receiptTotalTender = -receiptTotalTender
@@ -333,4 +355,142 @@ func processReceiptJob(app *App, receiptJob *ReceiptJob) {
 
 	receiptJobStore.updateReceiptJobStatus(receiptJob.ID, "completed", string(resultJSON))
 	receiptLogger.Infof("ReceiptJob completed: %s", receiptJob.ID)
+}
+
+func extractReceiptCustomFields(document Document, fieldTypes map[int]string) (int64, int, error) {
+	var totalTenderValue *float64
+	var totalTenderCents *int64
+	var itemsSoldValue *int
+
+	for _, cf := range document.CustomFields {
+		name := strings.TrimSpace(strings.ToLower(cf.Name))
+		switch name {
+		case "totaltender":
+			fieldType := strings.TrimSpace(strings.ToLower(fieldTypes[cf.Field]))
+			if fieldType == "integer" || fieldType == "int" {
+				value, err := parseCustomFieldInt(cf.Value)
+				if err != nil {
+					return 0, 0, fmt.Errorf("invalid totalTender custom field: %w", err)
+				}
+				if value != 0 {
+					normalized := int64(value)
+					totalTenderCents = &normalized
+				}
+				break
+			}
+			value, err := parseCustomFieldNumber(cf.Value)
+			if err != nil {
+				return 0, 0, fmt.Errorf("invalid totalTender custom field: %w", err)
+			}
+			if value != 0 {
+				totalTenderValue = &value
+			}
+		case "itemssold":
+			value, err := parseCustomFieldInt(cf.Value)
+			if err != nil {
+				return 0, 0, fmt.Errorf("invalid itemsSold custom field: %w", err)
+			}
+			if value > 0 {
+				itemsSoldValue = &value
+			}
+		}
+	}
+
+	missing := []string{}
+	if totalTenderCents == nil && (totalTenderValue == nil || *totalTenderValue == 0) {
+		missing = append(missing, "totalTender")
+	}
+	if itemsSoldValue == nil || *itemsSoldValue <= 0 {
+		missing = append(missing, "itemsSold")
+	}
+	if len(missing) > 0 {
+		return 0, 0, fmt.Errorf("missing or invalid custom fields: %s", strings.Join(missing, ", "))
+	}
+
+	if totalTenderCents != nil {
+		return *totalTenderCents, *itemsSoldValue, nil
+	}
+
+	cents := int64(math.Round(*totalTenderValue * 100))
+
+	return cents, *itemsSoldValue, nil
+}
+
+func getCustomFieldTypeLookup(client ClientInterface) map[int]string {
+	customFieldsCacheMu.RLock()
+	fields := append([]local_db.CustomField(nil), customFieldsCache...)
+	customFieldsCacheMu.RUnlock()
+
+	if len(fields) == 0 {
+		refreshCustomFieldsCache(client)
+		customFieldsCacheMu.RLock()
+		fields = append([]local_db.CustomField(nil), customFieldsCache...)
+		customFieldsCacheMu.RUnlock()
+	}
+
+	lookup := make(map[int]string, len(fields))
+	for _, field := range fields {
+		lookup[field.ID] = strings.TrimSpace(strings.ToLower(field.DataType))
+	}
+	return lookup
+}
+
+func parseCustomFieldNumber(value interface{}) (float64, error) {
+	switch v := value.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case json.Number:
+		return v.Float64()
+	case string:
+		cleaned := strings.TrimSpace(v)
+		cleaned = strings.TrimPrefix(cleaned, "$")
+		cleaned = strings.ReplaceAll(cleaned, ",", "")
+		if cleaned == "" {
+			return 0, fmt.Errorf("empty string")
+		}
+		return strconv.ParseFloat(cleaned, 64)
+	default:
+		return 0, fmt.Errorf("unsupported type %T", value)
+	}
+}
+
+func parseCustomFieldInt(value interface{}) (int, error) {
+	switch v := value.(type) {
+	case int:
+		return v, nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(math.Round(v)), nil
+	case float32:
+		return int(math.Round(float64(v))), nil
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return int(i), nil
+		}
+		if f, err := v.Float64(); err == nil {
+			return int(math.Round(f)), nil
+		}
+		return 0, fmt.Errorf("invalid json number")
+	case string:
+		cleaned := strings.TrimSpace(v)
+		if cleaned == "" {
+			return 0, fmt.Errorf("empty string")
+		}
+		if i, err := strconv.Atoi(cleaned); err == nil {
+			return i, nil
+		}
+		if f, err := strconv.ParseFloat(cleaned, 64); err == nil {
+			return int(math.Round(f)), nil
+		}
+		return 0, fmt.Errorf("invalid string")
+	default:
+		return 0, fmt.Errorf("unsupported type %T", value)
+	}
 }

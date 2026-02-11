@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -265,7 +266,7 @@ func (client *ActualClient) FindTransactionByDateAndAmount(ctx context.Context, 
 	}
 	var filtered []Transaction
 	for _, t := range transactions {
-		//actualLogger.Info("transaction amount: " + strconv.Itoa(t.Amount) + " input amount: " + strconv.Itoa(amount))
+		actualLogger.Info("transaction amount: " + strconv.Itoa(t.Amount) + " input amount: " + strconv.Itoa(amount))
 		if t.Amount == amount {
 			actualLogger.Info(amount)
 			filtered = append(filtered, t)

@@ -43,6 +43,16 @@ type ReceiptModelResult = {
   taxCents?: number;
 };
 
+type DocumentCustomField = {
+  field: number;
+  value: any;
+  name?: string;
+};
+
+type DocumentWithCustomFields = Document & {
+  custom_fields?: DocumentCustomField[];
+};
+
 type Account = {
   id: string;
   name: string;
@@ -69,6 +79,7 @@ type SettingsResponse = {
   settings?: {
     selected_receipt_categories?: ReceiptCategory[];
   };
+  custom_fields?: CustomField[];
 };
 
 type ActualTransactionItem = {
@@ -93,6 +104,12 @@ type ActualTransaction = {
   subtransactions?: ActualTransactionItem[];
 };
 
+type CustomField = {
+  id: number;
+  name: string;
+  data_type?: string;
+};
+
 const getItemTitles = (item: ReceiptCartItemResult): string[] => {
   const single = (item.title ?? "").trim();
   return single ? [single] : [];
@@ -115,6 +132,16 @@ const getItemCategory = (item: ReceiptCartItemResult): string => {
 }
 
 const normalizeCategoryKey = (value: string): string => value.trim().toLowerCase();
+
+const normalizeCategoryLabel = (value?: string): string => {
+  const trimmed = (value ?? "").trim();
+  const lower = trimmed.toLowerCase();
+  if (!trimmed) return "";
+  if (lower === "undefined" || lower === "null" || lower === "n/a" || lower === "none" || lower === "unknown") {
+    return "";
+  }
+  return trimmed;
+};
 
 const resolveCategoryId = (
   categoryLabel: string,
@@ -159,6 +186,66 @@ const parseCostInputToCents = (value: string): number | null => {
   return Math.round(parsed * 100);
 };
 
+const normalizeCustomFieldName = (value?: string): string => (value ?? "").trim().toLowerCase();
+
+const normalizeCustomFieldType = (value?: string): string => (value ?? "").trim().toLowerCase();
+
+const isIntegerFieldType = (value?: string): boolean => {
+  const normalized = normalizeCustomFieldType(value);
+  return normalized === "integer" || normalized === "int";
+};
+
+const getCustomFieldValue = (
+  doc: DocumentWithCustomFields | null,
+  fieldName: string
+): any => {
+  if (!doc?.custom_fields?.length) return null;
+  const target = normalizeCustomFieldName(fieldName);
+  const match = doc.custom_fields.find((field) => normalizeCustomFieldName(field.name) === target);
+  return match?.value ?? null;
+};
+
+const parseCustomFieldNumber = (value: any): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const cleaned = value.trim().replace(/[$,]/g, "");
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    if (!Number.isFinite(parsed)) return null;
+    return parsed;
+  }
+  return null;
+};
+
+const parseCustomFieldInt = (value: any): number | null => {
+  const parsed = parseCustomFieldNumber(value);
+  if (parsed === null) return null;
+  if (!Number.isFinite(parsed)) return null;
+  return Math.round(parsed);
+};
+
+const extractReceiptCustomFields = (doc: DocumentWithCustomFields | null) => {
+  const totalTenderRaw = getCustomFieldValue(doc, "totalTender");
+  const itemsSoldRaw = getCustomFieldValue(doc, "itemsSold");
+  const totalTenderValue = parseCustomFieldNumber(totalTenderRaw);
+  const itemsSoldValue = parseCustomFieldInt(itemsSoldRaw);
+  const missing: string[] = [];
+
+  if (totalTenderValue === null || !Number.isFinite(totalTenderValue) || totalTenderValue <= 0) {
+    missing.push("totalTender");
+  }
+  if (itemsSoldValue === null || !Number.isFinite(itemsSoldValue) || itemsSoldValue <= 0) {
+    missing.push("itemsSold");
+  }
+
+  return {
+    totalTenderValue: totalTenderValue === null ? null : Math.abs(totalTenderValue),
+    itemsSoldValue,
+    error: missing.length ? `Missing or invalid custom fields: ${missing.join(", ")}` : null,
+  };
+};
+
 // const alignCategories = (categories: string[], count: number): string[] => {
 //   if (count <= 0) return [];
 //   if (categories.length === count) return categories;
@@ -195,6 +282,10 @@ const Receipt: React.FC = () => {
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [documentId, setDocumentId] = useState(0);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [totalTender, setTotalTender] = useState(0);
   const [itemsSold, setItemsSold] = useState(0);
   const [receiptJobId, setReceiptJobId] = useState('');
@@ -206,7 +297,7 @@ const Receipt: React.FC = () => {
   const [pagesDone, setPagesDone] = useState(0);
   const [totalPages, setTotalPages] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const [documentDetails, setDocumentDetails] = useState<Document | null>(null);
+  const [documentDetails, setDocumentDetails] = useState<DocumentWithCustomFields | null>(null);
   const [perPageResults, setPerPageResults] = useState<OCRPageResult[]>([]);
   //const [receiptPromptName, setReceiptPromptName] = useState('');
   //const [cartTitlesFieldValue, setCartTitlesFieldValue] = useState('');
@@ -218,10 +309,12 @@ const Receipt: React.FC = () => {
   const [receiptCategories, setReceiptCategories] = useState<ReceiptCategory[]>([]);
   const [receiptCategoriesLoading, setReceiptCategoriesLoading] = useState(false);
   const [receiptCategoriesError, setReceiptCategoriesError] = useState<string | null>(null);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [savingReceipt, setSavingReceipt] = useState(false);
   const [saveReceiptMessage, setSaveReceiptMessage] = useState<string | null>(null);
   const [saveReceiptError, setSaveReceiptError] = useState<string | null>(null);
   const lastFetchedPagesDoneRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [reReceiptLoading, setReReceiptLoading] = useState<{ [pageIdx: number]: boolean }>({});
   const [reReceiptErrors, setReReceiptErrors] = useState<{ [pageIdx: number]: string }>({});
@@ -259,6 +352,8 @@ const Receipt: React.FC = () => {
         const resp = await axios.get<SettingsResponse>("./api/settings");
         const selected = resp.data?.settings?.selected_receipt_categories ?? [];
         if (!cancelled) setReceiptCategories(selected);
+        const availableCustomFields = resp.data?.custom_fields ?? [];
+        if (!cancelled) setCustomFields(availableCustomFields);
       } catch (err) {
         console.error("Failed to load receipt categories:", err);
         if (!cancelled) setReceiptCategoriesError("Failed to load receipt categories.");
@@ -279,15 +374,32 @@ const Receipt: React.FC = () => {
     }
   };
 
-  const fetchDocumentDetails = useCallback(async () => {
-    if (!documentId) return;
+  const fetchDocumentDetails = useCallback(
+    async (
+      overrideId?: number,
+      options?: { prefillCustomFields?: boolean }
+    ): Promise<DocumentWithCustomFields | null> => {
+    const targetId = overrideId ?? documentId;
+    if (!targetId) return null;
 
     try {
-      const response = await axios.get<Document>(`./api/documents/${documentId}`);
-      setDocumentDetails(response.data);
+      const response = await axios.get<DocumentWithCustomFields>(`./api/documents/${targetId}`);
+      const doc = response.data;
+      setDocumentDetails(doc);
+      if (options?.prefillCustomFields !== false) {
+        const { totalTenderValue, itemsSoldValue } = extractReceiptCustomFields(doc);
+        if (typeof totalTenderValue === "number") {
+          setTotalTender(totalTenderValue);
+        }
+        if (typeof itemsSoldValue === "number") {
+          setItemsSold(itemsSoldValue);
+        }
+      }
+      return doc;
     } catch (err) {
       console.error("Error fetching document details:", err);
       setError("Failed to fetch document details.");
+      return null;
     }
   }, [documentId]);
 
@@ -301,6 +413,120 @@ const Receipt: React.FC = () => {
       setError("Failed to fetch per-page OCR results.");
     }
   }, [documentId]);
+
+  const resolveCustomField = useCallback(
+    (fieldName: string): CustomField | null => {
+      const normalized = normalizeCustomFieldName(fieldName);
+      if (!normalized) return null;
+      const match = customFields.find(
+        (field) => normalizeCustomFieldName(field.name) === normalized
+      );
+      return match ?? null;
+    },
+    [customFields]
+  );
+
+  const updateReceiptCustomFields = async (doc: DocumentWithCustomFields) => {
+    const targetDocumentId = doc.id ?? documentId;
+    if (!targetDocumentId) {
+      throw new Error("Missing document ID for custom field update.");
+    }
+    const totalTenderField = resolveCustomField("totalTender");
+    const itemsSoldField = resolveCustomField("itemsSold");
+    const totalTenderFieldId = totalTenderField?.id ?? null;
+    const itemsSoldFieldId = itemsSoldField?.id ?? null;
+
+    const missing: string[] = [];
+    if (!totalTenderFieldId) missing.push("totalTender");
+    if (!itemsSoldFieldId) missing.push("itemsSold");
+    if (missing.length > 0) {
+      throw new Error(`Missing custom fields in Paperless: ${missing.join(", ")}`);
+    }
+
+    const totalTenderValue =
+      typeof totalTender === "number" && Number.isFinite(totalTender) ? totalTender : 0;
+    const itemsSoldValue =
+      typeof itemsSold === "number" && Number.isFinite(itemsSold) ? Math.round(itemsSold) : 0;
+
+    if (totalTenderValue <= 0 || itemsSoldValue <= 0) {
+      throw new Error("Total tender and items sold must be greater than 0.");
+    }
+
+    const totalTenderPayloadValue = isIntegerFieldType(totalTenderField?.data_type)
+      ? -Math.round(Math.abs(totalTenderValue) * 100)
+      : -Math.abs(totalTenderValue);
+    const itemsSoldPayloadValue = isIntegerFieldType(itemsSoldField?.data_type)
+      ? Math.round(itemsSoldValue)
+      : itemsSoldValue;
+
+    const requestPayload = [
+      {
+        id: targetDocumentId,
+        original_document: doc,
+        suggested_custom_fields: [
+          { id: totalTenderFieldId, name: "totalTender", value: totalTenderPayloadValue },
+          { id: itemsSoldFieldId, name: "itemsSold", value: itemsSoldPayloadValue },
+        ],
+        custom_fields_write_mode: "update",
+      },
+    ];
+
+    await axios.patch("./api/update-documents", requestPayload);
+  };
+
+  const uploadReceiptFile = async (file: File) => {
+    setUploading(true);
+    setUploadError(null);
+    setUploadMessage(null);
+    setError(null);
+    setMessage(null);
+    setReceiptJobId('');
+    setOcrResult('');
+    setPagesDone(0);
+    setPerPageResults([]);
+    setReceiptJobStatus('idle');
+    setClientStatus('idle');
+    setPayee('');
+    setMatchedTransaction(null);
+    setTransactionError(null);
+    setCartRows([]);
+    setTotalPages(null);
+    setTotalTender(0);
+    setItemsSold(0);
+    lastFetchedPagesDoneRef.current = 0;
+    setDocumentId(0);
+    setDocumentDetails(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('document', file, file.name);
+      const response = await axios.post("./api/documents/upload", formData);
+      const newDocumentId = Number(response.data?.document_id);
+      if (!Number.isFinite(newDocumentId) || newDocumentId <= 0) {
+        throw new Error("Upload did not return a document ID.");
+      }
+      setDocumentId(newDocumentId);
+      setUploadMessage(`Uploaded as document ${newDocumentId}.`);
+      await fetchDocumentDetails(newDocumentId);
+    } catch (err: any) {
+      console.error("Upload failed:", err);
+      const message =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to upload receipt.";
+      setUploadError(message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setSelectedFileName(file.name);
+    void uploadReceiptFile(file);
+    event.target.value = "";
+  };
 
   const submitReceiptJob = async () => {
     setError(null);
@@ -319,7 +545,14 @@ const Receipt: React.FC = () => {
     lastFetchedPagesDoneRef.current = 0;
 
     try {
-      await fetchDocumentDetails();
+      let doc = documentDetails;
+      if (!doc) {
+        doc = await fetchDocumentDetails(undefined, { prefillCustomFields: false });
+      }
+      if (!doc) {
+        throw new Error("Document details not loaded.");
+      }
+      await updateReceiptCustomFields(doc);
 
       // Convert currency to integer cents for the backend (which expects an int)
       //const totalTenderCents = Math.round((Number(totalTender) || 0) * 100);
@@ -460,7 +693,6 @@ const Receipt: React.FC = () => {
         categoryLookup.set(normalizeCategoryKey(c.name), c.id);
       }
 
-      const missingCategories = new Set<string>();
       const amountSign = transactionAmount < 0 ? -1 : 1;
       const subtransactions: ActualTransactionItem[] = [];
       let defaultCategoryId: string | null = null;
@@ -468,13 +700,14 @@ const Receipt: React.FC = () => {
       for (const row of cartRows) {
         const cost = row.cost;
         if (!Number.isFinite(cost) || cost === 0) continue;
-        const categoryLabel = (row.category ?? "").trim();
-        const categoryId = categoryLabel
-          ? resolveCategoryId(categoryLabel, receiptCategories, categoryLookup)
-          : null;
-        if (!categoryId) {
-          missingCategories.add(categoryLabel || "(blank)");
-        } else if (!defaultCategoryId) {
+        const categoryLabel = normalizeCategoryLabel(row.category);
+        let categoryId: string | null = null;
+        if (categoryLabel) {
+          categoryId = resolveCategoryId(categoryLabel, receiptCategories, categoryLookup);
+        } else {
+          categoryId = defaultCategoryId ?? null;
+        }
+        if (categoryId && !defaultCategoryId) {
           defaultCategoryId = categoryId;
         }
         const notes = getRowNotes(row);
@@ -496,20 +729,11 @@ const Receipt: React.FC = () => {
           resolveCategoryId(taxCategoryLabel, receiptCategories, categoryLookup) ||
           defaultCategoryId ||
           "";
-        if (!taxCategoryId) {
-          missingCategories.add(taxCategoryLabel);
-        }
         subtransactions.push({
           amount: amountSign * Math.round(taxCents),
           category: taxCategoryId,
           notes: "Sales tax",
         });
-      }
-      if (missingCategories.size > 0) {
-        throw new Error(
-          `Missing category mappings for: ${Array.from(missingCategories).join(", ")}. ` +
-            "Re-select receipt categories in Connections."
-        );
       }
 
       const transactionPayload: ActualTransaction = {
@@ -654,6 +878,7 @@ const Receipt: React.FC = () => {
   const subtotalExceedsTotal = totalTenderCents > 0 && subtotalCents > totalTenderCents;
   const canSubmitReceiptJob =
     Boolean(documentId) &&
+    !uploading &&
     Number.isFinite(totalTender) &&
     Number.isFinite(itemsSold) &&
     totalTender > 0 &&
@@ -674,17 +899,45 @@ const Receipt: React.FC = () => {
       </p>
       <div className="bg-gray-100 dark:bg-gray-800 p-6 rounded-lg shadow-md">
         <div className="mb-4">
-          <label htmlFor="documentId" className="block mb-2 font-semibold">
-            Document ID:
-          </label>
-          <input
-            type="number"
-            id="documentId"
-            value={documentId}
-            onChange={(e) => setDocumentId(Number(e.target.value))}
-            className={inputClassName}
-            placeholder="Enter the document ID"
-          />
+          <label className="block mb-2 font-semibold">Receipt File:</label>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept="image/*,application/pdf"
+              onChange={handleFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition duration-200 disabled:bg-blue-300 disabled:cursor-not-allowed"
+              disabled={uploading}
+            >
+              {uploading ? (
+                <span className="flex items-center justify-center">
+                  <FaSpinner className="animate-spin mr-2" />
+                  Uploading...
+                </span>
+              ) : (
+                "Choose File"
+              )}
+            </button>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {selectedFileName || "No file selected"}
+            </span>
+          </div>
+          {documentId > 0 && (
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Document ID: {documentId}
+            </p>
+          )}
+          {uploadMessage && (
+            <p className="mt-2 text-sm text-green-600">{uploadMessage}</p>
+          )}
+          {uploadError && (
+            <p className="mt-2 text-sm text-red-600">{uploadError}</p>
+          )}
         </div>
         <div className="mb-4">
           <label htmlFor="accountId" className="block mb-2 font-semibold">

@@ -1267,12 +1267,32 @@ func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string)
 		return nil, fmt.Errorf("error checking task status: %d, %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var raw interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("error parsing response: %w", err)
 	}
 
-	return result, nil
+	switch value := raw.(type) {
+	case map[string]interface{}:
+		if resultsRaw, ok := value["results"]; ok {
+			if results, ok := resultsRaw.([]interface{}); ok && len(results) > 0 {
+				if first, ok := results[0].(map[string]interface{}); ok {
+					return first, nil
+				}
+			}
+		}
+		return value, nil
+	case []interface{}:
+		if len(value) == 0 {
+			return nil, fmt.Errorf("task status response was empty")
+		}
+		if first, ok := value[0].(map[string]interface{}); ok {
+			return first, nil
+		}
+		return nil, fmt.Errorf("task status response had unexpected item type")
+	default:
+		return nil, fmt.Errorf("task status response had unexpected format")
+	}
 }
 
 // CreateTag creates a new tag and returns its ID

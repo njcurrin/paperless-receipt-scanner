@@ -400,6 +400,7 @@ func main() {
 
 		// OCR endpoints
 		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)
+		api.POST("/documents/upload", app.uploadDocumentHandler)
 		api.GET("/documents/:id/ocr_pages", app.getOCRPagesHandler)
 		api.POST("/documents/:id/ocr_pages/:pageIndex/reocr", app.reOCRPageHandler)
 		api.DELETE("/documents/:id/ocr_pages/:pageIndex/reocr", app.cancelReOCRPageHandler)
