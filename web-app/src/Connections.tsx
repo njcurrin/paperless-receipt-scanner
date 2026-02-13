@@ -229,16 +229,16 @@ const Connections: React.FC = () => {
 ))}
 
             </div>
-            <button
-          type="button"
-          onClick={SaveBudgetCategories}
-          disabled={!budgetId || categoriesLoading || savingCategories || selectedCategoryIds.size === 0}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded transition duration-200"
-        >
-          {savingCategories ? "Saving categories..." : "Save"}
-        </button>
-          </div>
-        )}
-
+      <button
+        type="button"
+        onClick={SaveBudgetCategories}
+        disabled={!budgetId || categoriesLoading || savingCategories || selectedCategoryIds.size === 0}
+        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded transition duration-200"
+      >
+        {savingCategories ? "Saving categories..." : "Save"}
+      </button>
+    </div>
+  );
+};
 
 export default Connections;

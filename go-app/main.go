@@ -410,6 +410,7 @@ func main() {
 
 		// Receipts endpoints
 		api.POST("/documents/:id/receipt", app.submitReceiptJobHandler)
+		api.GET("/documents/:id/receipt_image", app.getReceiptImageHandler)
 		api.GET("/jobs/receipts/:receiptJob_id", app.getReceiptJobStatusHandler)
 		api.GET("/jobs/receipts", app.getAllReceiptJobsHandler)
 		api.POST("/jobs/receipts/:receiptJob_id/stop", app.stopReceiptJobHandler)
@@ -473,6 +474,9 @@ func main() {
 		router.GET("/connections", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
+		router.GET("/categorize", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
 	} else {
 		log.Info("Serving frontend files from embedded assets")
 		// Instead of wildcard, serve specific files
@@ -508,6 +512,9 @@ func main() {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 		router.GET("/connections", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		router.GET("/categorize", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}

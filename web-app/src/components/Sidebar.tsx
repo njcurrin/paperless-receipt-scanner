@@ -66,6 +66,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
       icon: mdiReceiptTextCheck,
       title: "Connections",
     });
+        menuItems.push({
+      name: "categories",
+      path: "./categorize",
+      icon: mdiReceiptTextCheck,
+      title: "Actual Budget",
+    });
   }
 
   return (

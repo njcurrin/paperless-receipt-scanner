@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -130,4 +131,40 @@ func (app *App) stopReceiptJobHandler(c *gin.Context) {
 	}
 	cancel()
 	c.Status(http.StatusNoContent)
+}
+
+func (app *App) getReceiptImageHandler(c *gin.Context) {
+	documentIDStr := c.Param("id")
+	documentID, err := strconv.Atoi(documentIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+		return
+	}
+
+	imagePaths, _, err := app.Client.DownloadDocumentAsImages(c.Request.Context(), documentID, 1)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to download receipt image"})
+		return
+	}
+	defer func() {
+		for _, imagePath := range imagePaths {
+			if removeErr := os.Remove(imagePath); removeErr != nil {
+				log.WithError(removeErr).WithField("image_path", imagePath).Warn("Failed to remove temp receipt image")
+			}
+		}
+	}()
+
+	if len(imagePaths) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Receipt image not found"})
+		return
+	}
+
+	imageData, err := os.ReadFile(imagePaths[0])
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read receipt image"})
+		return
+	}
+
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "image/jpeg", imageData)
 }

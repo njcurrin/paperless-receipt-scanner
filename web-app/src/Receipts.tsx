@@ -290,6 +290,9 @@ const Receipt: React.FC = () => {
   const [itemsSold, setItemsSold] = useState(0);
   const [receiptJobId, setReceiptJobId] = useState('');
   const [ocrResult, setOcrResult] = useState('');
+  const [receiptImageUrl, setReceiptImageUrl] = useState('');
+  const [receiptImageLoading, setReceiptImageLoading] = useState(false);
+  const [receiptImageError, setReceiptImageError] = useState<string | null>(null);
   const [receiptJobStatus, setReceiptJobStatus] = useState<ReceiptJobStatus>('idle');
   const [clientStatus, setClientStatus] = useState<ReceiptClientStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -414,6 +417,14 @@ const Receipt: React.FC = () => {
     }
   }, [documentId]);
 
+  const refreshReceiptImage = useCallback((overrideDocumentId?: number) => {
+    const targetId = overrideDocumentId ?? documentId;
+    if (!targetId) return;
+    setReceiptImageError(null);
+    setReceiptImageLoading(true);
+    setReceiptImageUrl(`./api/documents/${targetId}/receipt_image?t=${Date.now()}`);
+  }, [documentId]);
+
   const resolveCustomField = useCallback(
     (fieldName: string): CustomField | null => {
       const normalized = normalizeCustomFieldName(fieldName);
@@ -482,6 +493,9 @@ const Receipt: React.FC = () => {
     setMessage(null);
     setReceiptJobId('');
     setOcrResult('');
+    setReceiptImageUrl('');
+    setReceiptImageLoading(false);
+    setReceiptImageError(null);
     setPagesDone(0);
     setPerPageResults([]);
     setReceiptJobStatus('idle');
@@ -533,6 +547,9 @@ const Receipt: React.FC = () => {
     setMessage(null);
     setReceiptJobId('');
     setOcrResult('');
+    setReceiptImageUrl('');
+    setReceiptImageLoading(false);
+    setReceiptImageError(null);
     //setReceiptPromptName('');
     //setCartTitlesFieldValue('');
     setPagesDone(0);
@@ -593,6 +610,7 @@ const Receipt: React.FC = () => {
       }
       
       if (newReceiptJobStatus === 'completed') {
+        refreshReceiptImage();
         let parsedResult: ReceiptModelResult | null = null;
         try {
           parsedResult = JSON.parse(response.data.result);
@@ -614,6 +632,7 @@ const Receipt: React.FC = () => {
           setCartRows(rows);
         }
       } else if (newReceiptJobStatus === 'failed') {
+        setReceiptImageLoading(false);
         setError(response.data.error);
       } else {
         setTimeout(() => checkReceiptJobStatus(), refreshInterval);
@@ -1259,26 +1278,55 @@ const Receipt: React.FC = () => {
             </div>
           </div>
         )}
-        {ocrResult && (
+        {(receiptJobStatus === 'completed' || receiptImageUrl || receiptImageError) && (
           <div className="mt-6">
-            <h2 className="text-2xl font-bold mb-4">Combined OCR Result:</h2>
+            <h2 className="text-2xl font-bold mb-4">Receipt Image:</h2>
             <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded border border-gray-200 dark:border-gray-700 overflow-auto max-h-96">
-              <pre className="whitespace-pre-wrap">{ocrResult}</pre>
-            </div>
-            <button
-              onClick={handleSaveContent}
-              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded transition duration-200 mt-4"
-              disabled={saving}
-            >
-              {saving ? (
-                <span className="flex items-center justify-center">
-                  <FaSpinner className="animate-spin mr-2" />
-                  Saving...
-                </span>
+              {receiptImageError ? (
+                <p className="text-red-600">{receiptImageError}</p>
+              ) : receiptImageUrl ? (
+                <div className="relative">
+                  <img
+                    src={receiptImageUrl}
+                    alt="Receipt scan from Paperless"
+                    className={`w-full h-auto max-h-[70vh] object-contain rounded ${receiptImageLoading ? "opacity-50" : ""}`}
+                    onLoad={() => {
+                      setReceiptImageLoading(false);
+                      setReceiptImageError(null);
+                    }}
+                    onError={() => {
+                      setReceiptImageLoading(false);
+                      setReceiptImageUrl('');
+                      setReceiptImageError("Failed to load receipt image from Paperless.");
+                    }}
+                  />
+                  {receiptImageLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-700 dark:text-gray-200">
+                      <FaSpinner className="animate-spin mr-2" />
+                      Loading receipt image...
+                    </div>
+                  )}
+                </div>
               ) : (
-                'Save Content'
+                <p className="text-gray-500 dark:text-gray-400">No receipt image available.</p>
               )}
-            </button>
+            </div>
+            {ocrResult && (
+              <button
+                onClick={handleSaveContent}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded transition duration-200 mt-4"
+                disabled={saving}
+              >
+                {saving ? (
+                  <span className="flex items-center justify-center">
+                    <FaSpinner className="animate-spin mr-2" />
+                    Saving...
+                  </span>
+                ) : (
+                  'Save Content'
+                )}
+              </button>
+            )}
           </div>
         )}
       </div>
