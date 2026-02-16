@@ -3,7 +3,10 @@ package main
 import (
 	"net/http"
 	"paperless-gpt/actualClient"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -107,6 +110,67 @@ func (app *App) getBudgetAccountsHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, accounts)
+}
+
+func (app *App) getBudgetAccountTransactionsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	if app.ActualClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Actual client not configured"})
+		return
+	}
+
+	budgetID := strings.TrimSpace(c.Param("budgetId"))
+	if budgetID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing budgetId"})
+		return
+	}
+
+	accountID := strings.TrimSpace(c.Param("accountId"))
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing accountId"})
+		return
+	}
+
+	sinceDate := strings.TrimSpace(c.Query("since_date"))
+	untilDate := strings.TrimSpace(c.Query("until_date"))
+
+	if sinceDate == "" {
+		days := 2
+		if rawDays := strings.TrimSpace(c.Query("days")); rawDays != "" {
+			parsedDays, err := strconv.Atoi(rawDays)
+			if err != nil || parsedDays < 1 || parsedDays > 31 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid days query; expected integer 1-31"})
+				return
+			}
+			days = parsedDays
+		}
+
+		now := time.Now()
+		untilDate = now.Format("2006-01-02")
+		startOffsetDays := days - 1
+		if startOffsetDays < 0 {
+			startOffsetDays = 0
+		}
+		sinceDate = now.AddDate(0, 0, -startOffsetDays).Format("2006-01-02")
+	} else if untilDate == "" {
+		untilDate = time.Now().Format("2006-01-02")
+	}
+
+	transactions, err := app.ActualClient.GetAccountTransactions(ctx, budgetID, accountID, sinceDate, untilDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	sort.SliceStable(transactions, func(i, j int) bool {
+		if transactions[i].Date == transactions[j].Date {
+			return transactions[i].SortOrder > transactions[j].SortOrder
+		}
+		return transactions[i].Date > transactions[j].Date
+	})
+
+	c.JSON(http.StatusOK, transactions)
 }
 
 func (app *App) postActualTransaction(c *gin.Context) {

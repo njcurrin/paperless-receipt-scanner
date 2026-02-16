@@ -418,6 +418,7 @@ func main() {
 		// Actual Budget endpoints
 		api.GET("/actual/budgets", app.getBudgetsHandler)
 		api.GET("/actual/budgets/:budgetId/accounts", app.getBudgetAccountsHandler)
+		api.GET("/actual/budgets/:budgetId/accounts/:accountId/transactions", app.getBudgetAccountTransactionsHandler)
 		api.GET("/actual/budgets/:budgetId/categories", app.getBudgetCategoriesHandler)
 		api.POST("/actual/budgets/:budgetId/categories", app.saveBudgetCategoriesHandler)
 		api.POST("/budgets/:budgetId/:transactionId", app.postActualTransaction)
